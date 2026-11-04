@@ -34,11 +34,64 @@ const WRAPPING_QUOTES = [
   ["\u201C", "\u201D"],
   ["\u2018", "\u2019"],
   ["\u201E", "\u201C"],
+  ["\u201E", "\u201D"],
   ["\u300C", "\u300D"], // 「 」
   ["\u300E", "\u300F"], // 『 』
   ["\u300A", "\u300B"], // 《 》
+  ["\u3008", "\u3009"], // 〈 〉
+  ["\u3010", "\u3011"], // 【 】
+  ["\u3014", "\u3015"], // 〔 〕
   ["\u00AB", "\u00BB"], // « »
 ];
+
+/**
+ * Determines if text is truly enclosed by an outer wrapping quote pair,
+ * rather than starting and ending with dialogue quotes from separate spoken phrases.
+ */
+function isWrappedBy(text, open, close) {
+  if (text.length <= open.length + close.length) return false;
+  if (!text.startsWith(open) || !text.endsWith(close)) return false;
+
+  if (open !== close) {
+    let depth = 1;
+    let i = open.length;
+    const end = text.length - close.length;
+    while (i < end) {
+      if (text.startsWith(open, i)) {
+        depth += 1;
+        i += open.length;
+      } else if (text.startsWith(close, i)) {
+        depth -= 1;
+        if (depth === 0) return false;
+        i += close.length;
+      } else {
+        i += 1;
+      }
+    }
+    return depth === 1;
+  }
+
+  const inner = text.slice(open.length, text.length - close.length);
+  if (!inner.includes(open)) return true;
+
+  if (open === "'") {
+    let hasQuoteBoundary = false;
+    for (let j = 0; j < inner.length; j += 1) {
+      if (inner[j] === "'") {
+        const prev = j > 0 ? inner[j - 1] : "";
+        const next = j < inner.length - 1 ? inner[j + 1] : "";
+        const isApostrophe = (/\p{L}/u.test(prev) || prev === "\\") && /\p{L}/u.test(next);
+        if (!isApostrophe) {
+          hasQuoteBoundary = true;
+          break;
+        }
+      }
+    }
+    if (!hasQuoteBoundary) return true;
+  }
+
+  return false;
+}
 
 // The choice contract is outcome-first: it describes what a good set of moves
 // looks like and lets the model decide how to arrive at one.
@@ -171,7 +224,7 @@ export function normalizeChoiceText(value) {
   // A model sometimes wraps the whole line in quotes or markdown asterisks;
   // these are punctuation, not part of the action.
   for (const [open, close] of WRAPPING_QUOTES) {
-    if (text.length > 1 && text.startsWith(open) && text.endsWith(close)) {
+    if (isWrappedBy(text, open, close)) {
       text = text.slice(open.length, text.length - close.length);
       break;
     }
@@ -211,17 +264,31 @@ function dedupeKey(text) {
  * blocks first and scanning balanced JSON slices so preliminary metadata
  * or thought objects (e.g. {"thought": "..."}) do not preempt the real choices.
  */
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {}
+  try {
+    const cleaned = raw
+      .replace(/\\'/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/(^|[^\\:])\/\/[^\n]*/g, "$1")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    return JSON.parse(cleaned);
+  } catch {}
+  return null;
+}
+
 function findValidChoiceList(text) {
   const blockMatches = text.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi);
   for (const m of blockMatches) {
     const inner = m[1].trim();
-    try {
-      const parsed = JSON.parse(inner);
-      const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.choices) ? parsed.choices : null;
-      if (list && list.length > 0) return list;
-    } catch {}
+    const parsed = safeJsonParse(inner);
+    const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.choices) ? parsed.choices : null;
+    if (list && list.length > 0) return list;
   }
 
+  const collectedObjects = [];
   let i = 0;
   while (i < text.length) {
     const nextStart = text.slice(i).search(/[[{]/);
@@ -248,11 +315,12 @@ function findValidChoiceList(text) {
         depth -= 1;
         if (depth === 0) {
           const slice = text.slice(start, j + 1);
-          try {
-            const parsed = JSON.parse(slice);
-            const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.choices) ? parsed.choices : null;
-            if (list && list.length > 0) return list;
-          } catch {}
+          const parsed = safeJsonParse(slice);
+          const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.choices) ? parsed.choices : null;
+          if (list && list.length > 0) return list;
+          if (parsed && typeof parsed === "object" && (parsed.text || parsed.action || parsed.choice || parsed.label)) {
+            collectedObjects.push(parsed);
+          }
           i = j + 1;
           matched = true;
           break;
@@ -261,7 +329,19 @@ function findValidChoiceList(text) {
     }
     if (!matched) i = start + 1;
   }
-  return null;
+  return collectedObjects.length >= 2 ? collectedObjects : null;
+}
+
+function parseLineItem(line) {
+  const m = line.match(/^(?:\*{1,2}([^*\n]+?)\*{1,2}|\[([^\]\n]+?)\])\s*[:\-–—]?\s*(.+)$/);
+  if (m) {
+    const label = (m[1] || m[2] || "").trim();
+    const text = (m[3] || "").trim();
+    if (label && text) {
+      return { label, text };
+    }
+  }
+  return { text: line };
 }
 
 function entryItem(entry) {
@@ -298,15 +378,25 @@ function extractItems(raw) {
   // Only used when it yields an actual list: a single line is far more likely
   // to be prose or an error message than a menu of one, and a one-item menu is
   // not a choice anyway.
-  const lines = clean
+  const rawLines = clean
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line && !/^```/.test(line) && !/^[a-zA-Z ]{0,20}:$/.test(line))
+    .filter((line) => line && !/^```/.test(line));
+
+  const markerLines = rawLines.filter((l) => LEADING_MARKER_RE.test(l));
+  let lines;
+  if (markerLines.length >= 2) {
+    lines = markerLines;
+  } else {
+    lines = rawLines.filter((line) => !/^#+\s/.test(line) && !/^[^:\n]{0,80}:\s*$/.test(line));
+  }
+
+  const cleanedLines = lines
     .map((line) => line.replace(LEADING_MARKER_RE, "").trim())
     .filter(Boolean);
-  return lines.length >= 2 ? lines.map((l) => ({ text: l })) : [];
-}
 
+  return cleanedLines.length >= 2 ? cleanedLines.map(parseLineItem) : [];
+}
 /**
  * Validates and normalises a raw model reply into the choice list.
  *

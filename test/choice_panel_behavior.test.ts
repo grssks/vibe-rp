@@ -147,3 +147,54 @@ describe("the steer field does not keep a consumed intent", () => {
     expect(find(mount, ".rp-choices__steer-toggle").hidden).toBe(true);
   });
 });
+
+describe("choice rendering handles dialogue quotes and accessibility safely", () => {
+  test("direct quoted dialogue lands as safe text without escaping issues", () => {
+    const { mount, panel, calls } = mountPanel();
+    panel.render({
+      mode: "choice",
+      status: "ready",
+      choices: [
+        { id: "c1", label: "Speak up", text: 'Call out loudly: "Who\'s there? Show yourself!"' },
+        { id: "c2", label: "Whisper", text: '“Don’t move,” she warned, “or you’ll trigger it.”' },
+        { id: "c3", label: "", text: 'Step back into <shadows> & hold your breath.' },
+      ],
+      error: null,
+      selectedId: null,
+    });
+
+    const buttons = mount.querySelectorAll(".rp-choices__option");
+    expect(buttons.length).toBe(3);
+
+    // Button 1 displays label if present
+    const text1 = buttons[0].querySelector(".rp-choices__text");
+    expect(text1?.textContent).toBe("Speak up");
+
+    // Button 3 has no label, displays text safely without treating <shadows> as HTML
+    const text3 = buttons[2].querySelector(".rp-choices__text");
+    expect(text3?.textContent).toBe("Step back into <shadows> & hold your breath.");
+    expect(buttons[2].innerHTML).not.toContain("<shadows>");
+
+    // Clicking choice 1 triggers onSelect with its id
+    click(buttons[0]);
+    expect(calls).toEqual(["select:c1"]);
+  });
+
+  test("numeric shortcut selects choice containing direct dialogue", () => {
+    const { mount, panel, calls } = mountPanel();
+    panel.render({
+      mode: "choice",
+      status: "ready",
+      choices: [
+        { id: "c1", text: 'Voice level: "Tell me the truth."' },
+        { id: "c2", text: 'Stay silent.' },
+      ],
+      error: null,
+      selectedId: null,
+    });
+
+    document.dispatch("keydown", { key: "1" });
+
+    expect(calls).toEqual(["select:c1"]);
+  });
+});

@@ -130,6 +130,45 @@ describe("choice parser - validation and sanitation", () => {
       '{"choices":[{"text":"A\\u0007 b\\u202Ec\\u200Bd"},{"text":"Leave."}]}',
       ["A bcd", "Leave."],
     ],
+    [
+      "preserves direct quoted dialogue in choice text without stripping internal quotes",
+      '{"choices":[{"text":"\\"Who are you?\\" you ask. \\"What do you want?\\""},{"text":"“Don’t move,” she whispered, “or he’ll hear us.”"},{"text":"「誰だ？」と尋ね、「何を求めている？」"},{"text":"«Qui êtes-vous?» demandes-tu. «Que voulez-vous?»"}]}',
+      [
+        '"Who are you?" you ask. "What do you want?"',
+        "“Don’t move,” she whispered, “or he’ll hear us.”",
+        "「誰だ？」と尋ね、「何を求めている？」",
+        "«Qui êtes-vous?» demandes-tu. «Que voulez-vous?»",
+      ],
+    ],
+    [
+      "strips CJK lenticular and angle brackets and low-9 quotes wrapping the full choice",
+      '{"choices":[{"text":"【部屋を調べる】"},{"text":"〈剣を取る〉"},{"text":"〔扉を開ける〕"},{"text":"„Tekst w cudzysłowie”"}]}',
+      ["部屋を調べる", "剣を取る", "扉を開ける", "Tekst w cudzysłowie"],
+    ],
+    [
+      "preserves word-internal apostrophes while stripping wrapping single quotes",
+      '{"choices":[{"text":"\'Don\\\'t look back\'"},{"text":"\'I\\\'ll protect you\'"}]}',
+      ["Don't look back", "I'll protect you"],
+    ],
+    [
+      "handles JSON with trailing commas resiliently",
+      '{"choices":[{"label":"First","text":"Do the first thing",},{"label":"Second","text":"Do the second thing",},]}',
+      ["Do the first thing", "Do the second thing"],
+    ],
+    [
+      "parses newline-delimited JSON (NDJSON) objects",
+      '{"label":"Fight","text":"Draw weapon and attack."}\n{"label":"Talk","text":"Say: \\"Stand down!\\""}\n{"label":"Run","text":"Flee into shadows."}',
+      ['Draw weapon and attack.', 'Say: "Stand down!"', 'Flee into shadows.'],
+    ],
+    [
+      "filters preambles and extracts labels from markdown lists",
+      'Here are your next choices for this beat:\n1. **Confront directly**: Step into the light and ask what they want.\n2. **Hold silence**: Wait in the shadows.\n3. **Flee**: Run for the door.\nWhich option do you prefer?',
+      [
+        "Step into the light and ask what they want.",
+        "Wait in the shadows.",
+        "Run for the door.",
+      ],
+    ],
   ])("%s", (_name, input, expected) => {
     expect(parseChoices(input).choices.map((c) => c.text)).toEqual(expected);
   });
