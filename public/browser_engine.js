@@ -2214,6 +2214,10 @@ export class BrowserChatEngine {
         ledgerCondensed = ledgerCondensed || request.ledgerCondensed;
       }
     }
+    if (request.impossible && onNotice && !this.#hasCondensedReported(session)) {
+      onNotice(this.#overflowReport(request, ledgerCondensed));
+    }
+
 
     // The FINAL request is authoritative: assemble it, measure it, and only
     // then send. A context-overflow rejection from the provider is the one
@@ -2566,6 +2570,10 @@ export class BrowserChatEngine {
       }
     }
     return null;
+  }
+
+  static #hasCondensedReported(session) {
+    return Boolean(session?.ledgerCondensedReported);
   }
 
   /**

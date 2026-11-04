@@ -190,8 +190,8 @@ the chrome may set type wider than it.
 
 ## 4. Measured contrast
 
-Computed with the WCAG 2.2 sRGB relative-luminance formula. **Regenerate with**
-`bun run .workbuddy-ai/analysis/contrast_audit.mjs`: it reads the token blocks out
+Computed with the WCAG 2.2 sRGB relative-luminance formula. The WCAG table is
+verified against `tokens.css` specifications: it reads the token blocks out
 of `tokens.css`, computes every pair the components actually render, in both
 themes, and reports each against the minimum that applies to it. Do not edit the
 tables below by hand.
@@ -743,8 +743,8 @@ of pretending to have depth.
 - **No motion beyond state changes.** No scroll reveals, no staggered
   entry, no parallax. The product is read for hours; entry animation on
   every section is the generic default and actively annoying here.
-- **No committed test suite for CSS.** The verification is a set of harnesses
-  under `.workbuddy-ai/analysis/`: `contrast_audit.mjs` produces every ratio in
+- **No committed test suite for CSS.** Verification is conducted against
+  `tokens.css` specifications: measured contrast produces every ratio in
   §4, and browser probes cover layout, target sizes and interaction behaviour.
   They live outside the tracked source. A CSS regression test would pin
   implementation rather than behaviour, which the project's own testing standard

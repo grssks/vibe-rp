@@ -109,7 +109,7 @@ const DB_NAME = "vibe_rp";
 // boundary: `snapshot()` exports exactly these, `clearAll()` removes exactly
 // these, and `restore()` accepts exactly these. One prefix, one meaning, so the
 // export and import paths cannot disagree about what belongs to the app.
-const KEY_PREFIX = "vibe_rp";
+const KEY_PREFIX = "vibe_rp_";
 // v2 adds the sessions.cardId index (defect 6). The upgrade path below creates
 // it in place, so existing databases keep every row.
 const DB_VERSION = 2;
