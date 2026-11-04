@@ -107,6 +107,7 @@ import {
   shouldUseCacheBreakpoints,
   withCacheBreakpoints,
   noteObservedReasoning,
+  promptCacheKeyFor,
 } from "./model_capability.js";
 export {
   getModelCapability,
@@ -1438,7 +1439,7 @@ export class BrowserChatEngine {
    * Streams one completion. Only non-neutral sampler values are sent, so an
    * untouched control cannot silently override a provider default.
    */
-  static buildRequestBody(settings, messages, outputCeiling = null) {
+  static buildRequestBody(settings, messages, outputCeiling = null, session = null) {
     const model = String(settings?.model || "").trim();
     const endpoint = settings?.apiEndpoint || "";
     const cap = getModelCapability(endpoint, model);
@@ -1451,6 +1452,11 @@ export class BrowserChatEngine {
       messages: wireMessages,
       stream: true,
     };
+    // Route every turn of this chat to the backend that holds its cache. A byte
+    // -stable prefix only pays off when the request lands where the previous one
+    // was cached; without a key a multi-account gateway spreads the turns.
+    const cacheKey = promptCacheKeyFor(session, cap);
+    if (cacheKey) body.prompt_cache_key = cacheKey;
     // stream_options is an OpenAI extension; some providers reject it with 400.
     // Gate it behind a capability flag so #streamDirect can drop it on rejection.
     if (cap.supportsStreamOptions !== false) {
@@ -1496,9 +1502,9 @@ export class BrowserChatEngine {
    * Streams one completion. Only non-neutral sampler values are sent, so an
    * untouched control cannot silently override a provider default.
    */
-  static async *#streamDirect(settings, messages, onCleanChunk, onUsage, signal, outputCeiling = null, onLengthCut = null) {
+  static async *#streamDirect(settings, messages, onCleanChunk, onUsage, signal, outputCeiling = null, onLengthCut = null, session = null) {
     const { base, headers } = this.#resolveEndpoint(settings);
-    let body = this.buildRequestBody(settings, messages, outputCeiling);
+    let body = this.buildRequestBody(settings, messages, outputCeiling, session);
 
     // The abort signal is threaded through every network path so a Stop button
     // can cancel the turn at any point, generation included.
@@ -1513,8 +1519,9 @@ export class BrowserChatEngine {
         if (rejection.unsupportedReasoningEffort) updateModelCapability(settings?.apiEndpoint, settings?.model, { supportsReasoningEffort: false });
         if (rejection.unsupportedStreamOptions) updateModelCapability(settings?.apiEndpoint, settings?.model, { supportsStreamOptions: false });
         if (rejection.unsupportedCacheControl) updateModelCapability(settings?.apiEndpoint, settings?.model, { supportsCacheControl: false });
+        if (rejection.unsupportedPromptCacheKey) updateModelCapability(settings?.apiEndpoint, settings?.model, { supportsPromptCacheKey: false });
 
-        body = this.buildRequestBody(settings, messages, outputCeiling);
+        body = this.buildRequestBody(settings, messages, outputCeiling, session);
         res = await this.#postChat(base, headers, body, signal);
         if (!res.ok) throw await this.#generationHttpError(res);
       } else {
@@ -2245,7 +2252,8 @@ export class BrowserChatEngine {
         },
         signal,
         ceiling,
-        onNotice ? (msg) => onNotice(msg) : null
+        onNotice ? (msg) => onNotice(msg) : null,
+        session
       )) {
         streamedAny = true;
         text += chunk;
@@ -2464,6 +2472,10 @@ export class BrowserChatEngine {
           ? withCacheBreakpoints(plan.payload)
           : plan.payload;
         const body = { model: choiceModel, messages, stream: false, [tokenKey]: plan.outputTokens };
+        // The menu rides the main turn's prefix, so it rides the main turn's
+        // route too: same key, same backend, same cache.
+        const cacheKey = promptCacheKeyFor(session, cap);
+        if (cacheKey) body.prompt_cache_key = cacheKey;
         if (cap.supportsTemperature !== false) {
           const baseTemp = typeof activeSettings.temperature === "number" ? activeSettings.temperature : 0.8;
           const wanted =
@@ -2472,10 +2484,11 @@ export class BrowserChatEngine {
               : Math.min(1.0, baseTemp);
           body.temperature = tempFloor === null ? wanted : Math.min(wanted, tempFloor);
         }
-        if (activeSettings?.reasoningEffort && cap.supportsReasoningEffort !== false) {
+        if ((activeSettings?.reasoningEffort || cap.observedReasoning) && cap.supportsReasoningEffort !== false) {
           // Choice Mode is a non-streaming auxiliary request for 4 short menu
           // lines; cap reasoning effort to "low" so high prose reasoning settings
-          // do not burn thousands of hidden tokens or stall the menu.
+          // or unconfigured default-medium reasoning models do not burn thousands
+          // of hidden tokens or stall the menu.
           body.reasoning_effort = "low";
         }
         return this.#postChat(base, headers, body, signal);
@@ -2491,6 +2504,7 @@ export class BrowserChatEngine {
       if (rejection.needsMaxTokens) updateModelCapability(endpoint, choiceModel, { tokenKey: "max_tokens" });
       if (rejection.unsupportedReasoningEffort) updateModelCapability(endpoint, choiceModel, { supportsReasoningEffort: false });
       if (rejection.unsupportedCacheControl) updateModelCapability(endpoint, choiceModel, { supportsCacheControl: false });
+      if (rejection.unsupportedPromptCacheKey) updateModelCapability(endpoint, choiceModel, { supportsPromptCacheKey: false });
       res = await send(0.7);
       return res.ok ? { res, error: null } : { res, error: await this.#generationHttpError(res) };
     };

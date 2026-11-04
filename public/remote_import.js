@@ -119,8 +119,14 @@ export function isCharacterPageUrl(url) {
 export function mapSourceJsonToCard(json, sourceUrl) {
   if (!json || !json.name) throw new Error("Character page API response did not contain a character.");
   const clean = (v) => (typeof v === "string" && v ? htmlToAppMarkup(v) : (v ?? ""));
+  // The page's `name` is the listing title, often a tagline ("Bitchy Goth girl
+  // slapped you!"), while `chat_name` is what the character is actually called
+  // in the chat. `{{char}}` resolves to `data.name` everywhere in the prompt, so
+  // a tagline there turns every instruction into "write <tagline>". Prefer the
+  // chat name when the source supplies one and keep the title as provenance.
+  const chatName = typeof json.chat_name === "string" ? json.chat_name.trim() : "";
   const data = {
-    name: json.name,
+    name: chatName || json.name,
     description: clean(json.description),
     personality: clean(json.personality),
     scenario: clean(json.scenario),
@@ -141,6 +147,7 @@ export function mapSourceJsonToCard(json, sourceUrl) {
   const ext = {
     source: { avatar_url: `https://ella.janitorai.com/bot-avatars/${json.avatar}?width=400` },
   };
+  if (chatName && chatName !== json.name) ext.source.title = json.name;
   if (json.is_nsfw !== undefined) ext.source.is_nsfw = json.is_nsfw;
   if (json.allow_proxy !== undefined) ext.source.allow_proxy = json.allow_proxy;
   if (json.created_at) ext.source.created_at = json.created_at;

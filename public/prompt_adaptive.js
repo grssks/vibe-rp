@@ -237,7 +237,7 @@ export const SLOP_LEXICON = [
   "voice thick with", "dripping with", "a dance of", "chaos of emotions",
 ];
 /**
- * Counts recurring 4-gram phrase echoes across turns in any language/script.
+ * Counts recurring 3-gram and 4-gram phrase echoes across turns in any language/script.
  */
 export function countCrossTurnNgramEchoes(replies = []) {
   if (!Array.isArray(replies) || replies.length < 2) return 0;
@@ -255,12 +255,17 @@ export function countCrossTurnNgramEchoes(replies = []) {
       const m = narr.match(/[\p{L}\p{N}]+/gu);
       if (m) tokens.push(...m);
     }
-    if (tokens.length < 5) continue;
+    if (tokens.length < 4) continue;
 
     const seenInTurn = new Set();
     for (let i = 0; i <= tokens.length - 4; i++) {
       const gram = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]} ${tokens[i + 3]}`;
       if (gram.length < 10) continue;
+      seenInTurn.add(gram);
+    }
+    for (let i = 0; i <= tokens.length - 3; i++) {
+      const gram = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`;
+      if (gram.length < 12) continue;
       seenInTurn.add(gram);
     }
     for (const gram of seenInTurn) {
@@ -270,7 +275,7 @@ export function countCrossTurnNgramEchoes(replies = []) {
 
   let repeatedClusters = 0;
   for (const count of phraseTurnCounts.values()) {
-    if (count >= 3) repeatedClusters++;
+    if (count >= 3) repeatedClusters += count - 1;
   }
   return repeatedClusters;
 }

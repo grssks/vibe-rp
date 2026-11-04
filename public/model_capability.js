@@ -234,8 +234,11 @@ export function detectParameterRejection(err) {
   const unsupportedCacheControl =
     /cache_control.*?(?:not supported|unsupported|unrecognized|unknown|invalid)/i.test(msg) ||
     /unsupported.*?parameter ['\"]?cache_control['\"]?/i.test(msg);
+  const unsupportedPromptCacheKey =
+    /prompt_cache_key.*?(?:not supported|unsupported|unrecognized|unknown|invalid|not permitted|extra)/i.test(msg) ||
+    /(?:unsupported|unrecognized|unknown|extra).{0,40}?prompt_cache_key/i.test(msg);
 
-  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedStreamOptions || unsupportedCacheControl) {
+  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedStreamOptions || unsupportedCacheControl || unsupportedPromptCacheKey) {
     return {
       unsupportedTemp,
       needsMaxCompletionTokens,
@@ -243,9 +246,27 @@ export function detectParameterRejection(err) {
       unsupportedReasoningEffort,
       unsupportedStreamOptions,
       unsupportedCacheControl,
+      unsupportedPromptCacheKey,
     };
   }
   return null;
+}
+
+/**
+ * The routing key that ties every request of one chat together.
+ *
+ * Providers and multi-account gateways keep a prompt cache per backend; a
+ * request only hits it when it is routed back to the backend that served the
+ * previous turn. `prompt_cache_key` is the OpenAI-compatible hint for exactly
+ * that, and gateways such as CLIProxyAPI read it as a session-affinity signal.
+ * The key is the chat's own id, so the main turn, the choice menu and a fold of
+ * the same chat share one route, and two chats never do. `null` (no key sent)
+ * when the chat has no id or the provider has rejected the field.
+ */
+export function promptCacheKeyFor(session, cap = null) {
+  if (cap && cap.supportsPromptCacheKey === false) return null;
+  const id = session && typeof session.id === "string" ? session.id.trim() : "";
+  return id ? `vibe-rp:${id}` : null;
 }
 
 /**

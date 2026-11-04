@@ -102,7 +102,10 @@ describe("Unified settings surface", () => {
     expect(modal).not.toContain("popup-cache-key");
     expect(panel).not.toContain("popup-cache-key");
     expect(panel).not.toContain("cacheKey");
-    expect(engine).not.toContain("prompt_cache_key");
+    // The engine does send a `prompt_cache_key`, but it is derived per chat from
+    // the session id (`promptCacheKeyFor`), never a user-set value shared across
+    // chats, so no setting or panel field may carry it.
+    expect(engine).not.toContain("settings.cacheKey");
 
     expect(modal).not.toContain("popup-thought-model-select");
     expect(modal).toContain("popup-choice-model-select");
