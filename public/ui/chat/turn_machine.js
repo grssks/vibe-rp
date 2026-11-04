@@ -92,6 +92,7 @@ export function createTurnMachine({
   }
 
   async function streamTurn(promptHint, { persistPending = true } = {}) {
+    if (activeStream) return;
     setBusy(true);
     // The reader's position at the moment the turn starts decides whether the
     // reply is followed. Captured once, deliberately: a reader who scrolls up

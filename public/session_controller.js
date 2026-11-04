@@ -554,7 +554,16 @@ export class SessionController {
    */
   cancel() {
     if (this.#activeTurn) this.#activeTurn.abort();
+    if (this.#choiceAbort) {
+      this.#choiceAbort.abort();
+      this.#choiceAbort = null;
+    }
+    if (this.choiceState.status === CHOICE_STATUS.SUBMITTING) this.#resetChoiceState();
     return true;
+  }
+
+  get busy() {
+    return this.#activeTurn !== null;
   }
 
   // Choice Mode
@@ -835,6 +844,7 @@ export class SessionController {
    * normal send path; this method never writes to the transcript itself.
    */
   selectChoice(choiceId) {
+    if (this.#activeTurn) return null;
     const st = this.choiceState;
     if (st.status !== CHOICE_STATUS.READY) return null;
     const choice = st.choices.find((c) => c.id === choiceId);

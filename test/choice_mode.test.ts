@@ -90,6 +90,33 @@ describe("Choice Mode - the core loop", () => {
     expect(engine.streamCalls).toBe(2); // greeting turn + one selection
   });
 
+  test("selecting a choice while a turn is generating is rejected", async () => {
+    let holdStream = false;
+    const gate = Promise.withResolvers<void>();
+    const engine = {
+      async streamTurn() {
+        if (holdStream) await gate.promise;
+        return "Reply.";
+      },
+      async generateChoices() {
+        return { choices: [{ id: "c1", text: "Choice 1." }] };
+      },
+    };
+    const { ctl } = await makeController({ engine });
+    await ctl.send("Hello.");
+    await ctl.requestChoices();
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.READY);
+
+    holdStream = true;
+    const streamPromise = ctl.streamResponse();
+    expect(ctl.busy).toBe(true);
+    expect(ctl.selectChoice("c1")).toBeNull();
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.READY);
+
+    gate.resolve();
+    await streamPromise;
+  });
+
   test("any other user turn still discards the pending set", async () => {
     const { ctl } = await makeController();
     await ctl.send("Hello.");
@@ -344,6 +371,43 @@ describe("Choice Mode - a failed turn never dead-ends the machine", () => {
     expect(ctl.choiceState.status).toBe(CHOICE_STATUS.SUBMITTING);
     ctl.appendMessage({ role: "user", content: pick.text });
     await expect(ctl.streamResponse()).rejects.toThrow("declined to continue");
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.IDLE);
+    expect(ctl.choiceState.selectedId).toBeNull();
+  });
+
+  test("cancel aborts in-flight choice generation and resets state to idle", async () => {
+    let abortObserved = false;
+    const engine = {
+      async streamTurn() { return "Reply."; },
+      async generateChoices({ signal }: { signal?: AbortSignal } = {}) {
+        const { promise, reject } = Promise.withResolvers<{ choices: Array<{ id: string; text: string }> }>();
+        signal?.addEventListener("abort", () => {
+          abortObserved = true;
+          const err = new Error("aborted");
+          err.name = "AbortError";
+          reject(err);
+        });
+        return promise;
+      },
+    };
+    const { ctl } = await makeController({ engine });
+    await ctl.send("Hello.");
+    const reqPromise = ctl.requestChoices();
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.GENERATING);
+    ctl.cancel();
+    await reqPromise;
+    expect(abortObserved).toBe(true);
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.IDLE);
+  });
+
+  test("cancel resets submitting choiceState when called before turn starts", async () => {
+    const { ctl } = await makeController();
+    await ctl.send("Hello.");
+    await ctl.requestChoices();
+    const pick = ctl.selectChoice(ctl.choiceState.choices[0].id);
+    expect(pick).not.toBeNull();
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.SUBMITTING);
+    ctl.cancel();
     expect(ctl.choiceState.status).toBe(CHOICE_STATUS.IDLE);
     expect(ctl.choiceState.selectedId).toBeNull();
   });

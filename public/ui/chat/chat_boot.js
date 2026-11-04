@@ -460,6 +460,7 @@
 
     /** Selection: claim once, append one user turn, run one generation. */
     async function selectChoice(id) {
+      if (composer.busy) return;
       const choice = controller.selectChoice(id);
       if (!choice) return; // not ready, or the set went stale between render and click
       // Paint the acknowledged, disabled state immediately, from the controller,
@@ -503,7 +504,10 @@
       requestAnimationFrame: (fn) => requestAnimationFrame(fn),
       matchFinePointer: () => window.matchMedia("(pointer: fine)").matches,
       clearComposerInput: (promptHint) => composer.clearIfMatched(promptHint),
-      onSettled: () => renderFeed(),
+      onSettled: () => {
+        renderFeed();
+        if (mode === "choice") renderChoices();
+      },
       onChoiceTurnFailed: () => { if (mode === "choice") renderChoices(); },
       onChoiceTurnSettled: async () => { renderChoices(); await requestChoices(); },
       isChoiceMode: () => mode === "choice",

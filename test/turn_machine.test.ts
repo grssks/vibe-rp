@@ -156,6 +156,26 @@ describe("streamTurn", () => {
     expect(feed.calls.map((c) => c[0])).toEqual(["beginStream", "failStream"]);
     expect(shown).toEqual(["Stopped."]);
   });
+
+  test("streamTurn ignores call if a stream is already active", async () => {
+    const gate = Promise.withResolvers<void>();
+    const { machine, controller } = rig({
+      controller: {
+        ...makeController(),
+        async streamResponse() {
+          this.calls.push(["streamResponse"]);
+          await gate.promise;
+          return { id: "m_reply", content: "ok" };
+        },
+      },
+    });
+    const p1 = machine.streamTurn("first");
+    const p2 = machine.streamTurn("second");
+    await p2;
+    expect(controller.calls.length).toBe(1);
+    gate.resolve();
+    await p1;
+  });
 });
 
 describe("entries", () => {
