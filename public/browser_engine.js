@@ -18,11 +18,10 @@ import {
   parseChoices,
   CHOICE_COUNT_DEFAULT,
 } from "./choice_format.js";
-import { substitutePlaceholders, stripThoughtBlocks, utf8Decoder, renderInlineField, neutralizeDelimiters, pruneImpersonation } from "./text.js";
+import { substitutePlaceholders, stripThoughtBlocks, renderInlineField, neutralizeDelimiters, pruneImpersonation } from "./text.js";
 import {
   analyzeTurnState,
   buildSceneGuidance,
-  detectNarration,
   GUIDANCE_MAX_TOKENS,
 } from "./prompt_adaptive.js";
 import {

@@ -42,12 +42,15 @@
 // on the wire.
 //
 // Exports
-//   analyzeTurnState     the session signals (what is drifting, if anything)
-//   buildSceneGuidance   those signals as a compact instruction block
-//   detectNarration      POV/tense reading of the newest replies
-//   PROSE_TICS           the named, checkable defect detectors
-//   SLOP_LEXICON         overused phrases (English, cluster-gated)
-//   GUIDANCE_MAX_TOKENS  the ceiling the block is clamped to
+//   analyzeTurnState           the session signals (what is drifting, if anything)
+//   buildSceneGuidance         those signals as a compact instruction block
+//   detectNarration            POV/tense reading of the newest replies
+//   PROSE_TICS                 the named, checkable defect detectors
+//   SLOP_LEXICON               overused phrases (English, cluster-gated)
+//   GUIDANCE_MAX_TOKENS        the ceiling the block is clamped to
+//   countCrossTurnNgramEchoes  cross-lingual phrase repetition cluster detector
+//   isLikelyEnglish            function-word distribution check for Latin text
+//   isNonEnglishText           detects non-English user input or persona authority
 
 import { stripThoughtBlocks, renderInlineField } from "./text.js";
 import { estimateTokens } from "./context_plan.js";

@@ -2,9 +2,9 @@
 //
 // Contract
 //   - `openPersonaEditor({ persona, onSave, compressImage, host })` opens a
-//     `.rp-dialog` with name, description, definition and an avatar control.
+//     `.rp-dialog` with name, description, gender/pronoun selector, definition and an avatar control.
 //     `persona` is the record to edit, or null to create.
-//   - `onSave(payload)` receives `{ id, name, description, template, avatar }`
+//   - `onSave(payload)` receives `{ id, name, description, gender, template, avatar }`
 //     and may be async. The dialog closes only after it resolves, so a failed
 //     save keeps the user's input on screen.
 //   - `compressImage(file, maxSize)` is injected (the page passes its canvas

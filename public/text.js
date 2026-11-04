@@ -4,11 +4,15 @@
 //
 // Exports
 //   utf8Decoder               the one shared UTF-8 TextDecoder instance
+//   resolvePronouns            infers or extracts pronouns for persona/player
 //   substitutePlaceholders     resolves {{user}}/{{char}} aliases
 //   stripThoughtBlocks         removes reasoning/scratchpad blocks
 //   renderInlineField          flattens a value for a single-line field slot
+//   neutralizeDelimiters       escapes bracket/quote delimiters in field slots
 //   findImpersonationBoundary  detects hallucinated player turn boundary
 //   pruneImpersonation         truncates completion at player turn boundary
+//   REFUSAL_RE                 multilingual refusal and safety-leak detector heuristic
+//   looksLikeModelRefusal      detects model safety refusals and policy preambles
 
 /** Every byte-to-text path decodes UTF-8 the same way; one instance, reused. */
 export const utf8Decoder = new TextDecoder();
