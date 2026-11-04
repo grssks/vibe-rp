@@ -133,8 +133,13 @@ export const PROSE_TICS = [
     id: "contrast",
     priority: 70,
     threshold: 2,
-    note: 'State the true thing once. The last replies leaned on the "not X, but Y" contrast.',
-    count: (text) => countMatches(text, /\bnot\s+(?:just\s+|only\s+|merely\s+|because\s+)?[^.!?\n]{2,60}?[,\u2014\u2013-]\s*(?:but|it'?s|they'?re|he'?s|she'?s|that'?s)\b/gi),
+    multilingual: true,
+    note: 'State the true thing once. The last replies leaned on the "not X, but Y" / "instead of X, Y" contrast.',
+    count: (text) =>
+      countMatches(
+        text,
+        /\b(?:not\s+(?:just\s+|only\s+|merely\s+|because\s+)?[^.!?\n]{2,60}?[,\u2014\u2013-]\s*(?:but|it'?s|they'?re|he'?s|she'?s|that'?s)|bukan(?:nya)?\s+(?:cuma\s+|hanya\s+|sekadar\s+|karena\s+)?[^.!?\n]{2,60}?[,\u2014\u2013-]\s*(?:melainkan|tetapi|tapi|justru)|alih-alih\s+[^,\n]{3,60},\s*|no\s+(?:solo\s+|sólo\s+|porque\s+)?[^.!?\n]{2,60}?,\s*sino|non\s+(?:pas\s+|seulement\s+)?[^.!?\n]{2,60}?,\s*mais|nicht\s+(?:nur\s+|weil\s+)?[^.!?\n]{2,60}?,\s*sondern)\b/gi
+      ),
   },
   {
     id: "emotionMix",
@@ -242,6 +247,7 @@ export const SLOP_LEXICON = [
 export function countCrossTurnNgramEchoes(replies = []) {
   if (!Array.isArray(replies) || replies.length < 2) return 0;
   const phraseTurnCounts = new Map();
+  const fourGramTurnCounts = new Map();
 
   for (const reply of replies) {
     const narr = narrationOnly(reply || "").toLowerCase();
@@ -257,23 +263,33 @@ export function countCrossTurnNgramEchoes(replies = []) {
     }
     if (tokens.length < 4) continue;
 
-    const seenInTurn = new Set();
+    const seenFourInTurn = new Set();
     for (let i = 0; i <= tokens.length - 4; i++) {
       const gram = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]} ${tokens[i + 3]}`;
       if (gram.length < 10) continue;
-      seenInTurn.add(gram);
+      seenFourInTurn.add(gram);
     }
+    for (const gram of seenFourInTurn) {
+      fourGramTurnCounts.set(gram, (fourGramTurnCounts.get(gram) || 0) + 1);
+    }
+
+    const seenThreeInTurn = new Set();
     for (let i = 0; i <= tokens.length - 3; i++) {
       const gram = `${tokens[i]} ${tokens[i + 1]} ${tokens[i + 2]}`;
       if (gram.length < 12) continue;
-      seenInTurn.add(gram);
+      seenThreeInTurn.add(gram);
     }
-    for (const gram of seenInTurn) {
+    for (const gram of seenThreeInTurn) {
       phraseTurnCounts.set(gram, (phraseTurnCounts.get(gram) || 0) + 1);
     }
   }
 
   let repeatedClusters = 0;
+  for (const [gram, count] of fourGramTurnCounts.entries()) {
+    if (count >= 3 || (count >= 2 && gram.length >= 16)) {
+      repeatedClusters += count - 1;
+    }
+  }
   for (const count of phraseTurnCounts.values()) {
     if (count >= 3) repeatedClusters += count - 1;
   }
@@ -478,7 +494,8 @@ export function analyzeTurnState({
   const tics = [];
   if (replies.length > 0) {
     for (const tic of PROSE_TICS) {
-      if (!tic.structural && (!latinScript || nonEnLatin)) continue;
+      if (!tic.structural && !tic.multilingual && (!latinScript || nonEnLatin)) continue;
+      if (tic.multilingual && !latinScript) continue;
       const hits = tic.count(recent, replies, ticContext);
       if (hits >= tic.threshold) {
         tics.push({ id: tic.id, priority: tic.priority, keep: tic.keep ?? tic.priority, note: tic.note, hits });

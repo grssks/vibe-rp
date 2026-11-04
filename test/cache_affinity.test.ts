@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BrowserChatEngine, detectParameterRejection, ensembleCast } from "../public/browser_engine.js";
 import { promptCacheKeyFor } from "../public/model_capability.js";
-import { countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
+import { analyzeTurnState, countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
 import { mapSourceJsonToCard } from "../public/remote_import.js";
 import { resolveCardIdentity, substitutePlaceholders } from "../public/text.js";
 import { cardDescription } from "../public/ui/character_card.js";
@@ -150,5 +150,29 @@ describe("cross-turn n-gram echo detection for agglutinative prose", () => {
     };
     const blurb = cardDescription(card, persona);
     expect(blurb).toContain("Saki Himekawa corners Iqbal and grabs his collar.");
+  });
+
+  test("11. multilingual contrast tic ('Alih-alih X, Y' / 'bukan X, melainkan Y') and verbatim 4-gram echoes fire on Indonesian replies", () => {
+    const messages = [
+      { role: "user", content: "Aku menyodorkan botol air dingin ke arah Saki." },
+      {
+        role: "assistant",
+        content:
+          "Alih-alih menolak dan mati kehausan demi gengsi, ia menengadahkan kepala dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat saat cairan es membasahi kerongkongannya.",
+      },
+      { role: "user", content: "Aku memperhatikannya minum." },
+      {
+        role: "assistant",
+        content:
+          "Alih-alih meneguknya pelan, mulut botol itu ia jejalkan ke bibirnya dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat.",
+      },
+    ];
+    const state = analyzeTurnState({
+      messages,
+      charName: "Saki Himekawa",
+      playerName: "Iqbal",
+    });
+    expect(state.tics.some((t) => t.id === "contrast")).toBe(true);
+    expect(state.slopHits).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
   });
 });
