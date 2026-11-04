@@ -27,6 +27,7 @@ import { el } from "./dom.js";
 import { openModal, closeModal } from "./modal.js";
 import { initTabs } from "./tabs.js";
 import { cardTitle, cardByline, cardTags, cardAvatarUrl, cardInitial, isSafeAvatarUrl } from "./character_card.js";
+import { substitutePlaceholders, resolveCardIdentity } from "../text.js";
 
 const FALLBACK_OPENING = "The door closes behind you. Silence settles into the corridor.";
 
@@ -59,15 +60,16 @@ function dossier(title, content, { mono = false } = {}) {
 }
 
 /** A collapsible opening, with an optional action to start from it. */
-function variation(label, text, onStart) {
+function variation(label, text, onStart, resolveText = (s) => s) {
   const cleaned = String(text ?? "").trim();
   if (!cleaned) return null;
+  const resolved = resolveText(cleaned);
   // The first line only: the summary is one `nowrap` row. The character cut that
   // used to be here was redundant with the stylesheet's own ellipsis AND worse —
   // it sliced at 65 characters, mid-word, where the box-edge ellipsis cuts at the
   // widest point that fits and follows the reader's window width.
-  const preview = cleaned.split("\n")[0];
-  const body = [el("p", { class: "rp-variation__text", text: cleaned })];
+  const preview = resolved.split("\n")[0];
+  const body = [el("p", { class: "rp-variation__text", text: resolved })];
   if (onStart) {
     const button = el("button", {
       type: "button",
@@ -86,13 +88,9 @@ function variation(label, text, onStart) {
   ]);
 }
 
-function formatSampleDialogue(raw, name) {
+function formatSampleDialogue(raw, resolveText = (s) => s) {
   if (!raw || !String(raw).trim()) return "";
-  return String(raw)
-    .replace(/<START>/gi, "")
-    .replace(/\{\{char\}\}/gi, name)
-    .replace(/\{\{user\}\}/gi, "You")
-    .trim();
+  return resolveText(String(raw).replace(/<START>/gi, "")).trim();
 }
 
 function threadRow(session, card, handlers) {
@@ -168,9 +166,15 @@ function startRename(session, titleBtn, handlers) {
   input.addEventListener("blur", () => finish(true));
 }
 
-export function openDetailModal({ card, sessions = [], loadSessions = null, handlers = {}, host } = {}) {
+export function openDetailModal({ card, persona = null, sessions = [], loadSessions = null, handlers = {}, host } = {}) {
   const data = card?.data && typeof card.data === "object" ? card.data : card || {};
   let name = cardTitle(card);
+  const resolveText = (raw) =>
+    substitutePlaceholders(String(raw ?? ""), {
+      user: persona?.name?.trim() || "You",
+      char: resolveCardIdentity(card).actorName || name,
+      persona,
+    });
 
   // Character hero header.
   const portraitInner = el("div", { class: "rp-detail__portrait-inner" });
@@ -322,12 +326,12 @@ export function openDetailModal({ card, sessions = [], loadSessions = null, hand
       : 0;
 
   const dossiers = [
-    dossier("Description and lore", data.description),
-    dossier("Personality and traits", data.personality),
-    dossier("Scenario and world", data.scenario),
-    dossier("Voice and dialogue samples", formatSampleDialogue(data.mes_example, name)),
-    dossier("System prompt", data.system_prompt, { mono: true }),
-    dossier("Post-history instructions", data.post_history_instructions, { mono: true }),
+    dossier("Description and lore", resolveText(data.description)),
+    dossier("Personality and traits", resolveText(data.personality)),
+    dossier("Scenario and world", resolveText(data.scenario)),
+    dossier("Voice and dialogue samples", formatSampleDialogue(data.mes_example, resolveText)),
+    dossier("System prompt", resolveText(data.system_prompt), { mono: true }),
+    dossier("Post-history instructions", resolveText(data.post_history_instructions), { mono: true }),
   ].filter(Boolean);
 
   if (entryCount > 0) {
@@ -351,7 +355,7 @@ export function openDetailModal({ card, sessions = [], loadSessions = null, hand
     close();
     handlers.onStartNew?.(card, opening);
   };
-  const firstMes = data.first_mes || FALLBACK_OPENING;
+  const firstMes = resolveText(data.first_mes || FALLBACK_OPENING);
   storyPanel.appendChild(
     section("Opening scene", "First message in new chats", [
       el("p", { class: "rp-detail__prose", text: firstMes }),
@@ -366,7 +370,7 @@ export function openDetailModal({ card, sessions = [], loadSessions = null, hand
         el(
           "div",
           { class: "rp-variation-list" },
-          alternates.map((alt, index) => variation(`Variation ${index + 1}`, alt, startFrom)).filter(Boolean)
+          alternates.map((alt, index) => variation(`Variation ${index + 1}`, alt, startFrom, resolveText)).filter(Boolean)
         )
       )
     );
@@ -380,7 +384,7 @@ export function openDetailModal({ card, sessions = [], loadSessions = null, hand
         el(
           "div",
           { class: "rp-variation-list" },
-          groupOnly.map((alt, index) => variation(`Group ${index + 1}`, alt, startFrom)).filter(Boolean)
+          groupOnly.map((alt, index) => variation(`Group ${index + 1}`, alt, startFrom, resolveText)).filter(Boolean)
         )
       )
     );

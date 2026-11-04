@@ -3,7 +3,8 @@ import { BrowserChatEngine, detectParameterRejection, ensembleCast } from "../pu
 import { promptCacheKeyFor } from "../public/model_capability.js";
 import { countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
 import { mapSourceJsonToCard } from "../public/remote_import.js";
-import { resolveCardIdentity } from "../public/text.js";
+import { resolveCardIdentity, substitutePlaceholders } from "../public/text.js";
+import { cardDescription } from "../public/ui/character_card.js";
 
 const msgs = [{ role: "user", content: "hi" }];
 
@@ -122,5 +123,32 @@ describe("cross-turn n-gram echo detection for agglutinative prose", () => {
       "Saki menghela napas pada sepatu platform-nya sambil mengetuk kuku-kuku hitamnya.",
     ];
     expect(countCrossTurnNgramEchoes(replies)).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
+  });
+
+  test("10. opening scene and card description resolve {{user}}, {{obj}}, {{poss}}, {{sub}} without leaking raw tokens", () => {
+    const firstMes =
+      "*Then she spotted {{user}} near the side gate.*\n" +
+      "*In three long strides she closed the distance, grabbed {{obj}} by the front of the shirt, and slammed {{obj}} back.*\n" +
+      "*Her other hand fisted in {{poss}} collar. The way {{sub}} was looking at her—*";
+    const persona = { name: "Iqbal", gender: "male", description: "He is a tall student." };
+    const resolved = substitutePlaceholders(firstMes, {
+      user: persona.name,
+      char: "Saki Himekawa",
+      persona,
+    });
+    expect(resolved).toContain("spotted Iqbal near");
+    expect(resolved).toContain("grabbed him by");
+    expect(resolved).toContain("fisted in his collar");
+    expect(resolved).toContain("The way he was looking");
+    expect(resolved).not.toMatch(/\{\{(?:user|char|sub|obj|poss|possp|ref)\}\}/i);
+
+    const card = {
+      data: {
+        name: "Bitchy Goth girl slapped you!",
+        description: "# Full name: Saki Himekawa\n{{char}} corners {{user}} and grabs {{poss}} collar.",
+      },
+    };
+    const blurb = cardDescription(card, persona);
+    expect(blurb).toContain("Saki Himekawa corners Iqbal and grabs his collar.");
   });
 });

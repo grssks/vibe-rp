@@ -147,7 +147,9 @@ export function createMessageFeed({
    * stale control behind.
    */
   function renderSignature(msg, opts) {
-    return `${signatureOf(msg)}:${opts.showRetry ? "r" : ""}${opts.showReroll ? "R" : ""}${opts.showDelete ? "d" : ""}${opts.showFork ? "f" : ""}`;
+    const p = context.persona;
+    const ctxSig = `${context.charName || ""}:${p?.id || ""}:${p?.name || ""}:${p?.gender || ""}:${(p?.description || "").length}`;
+    return `${signatureOf(msg)}:${ctxSig}:${opts.showRetry ? "r" : ""}${opts.showReroll ? "R" : ""}${opts.showDelete ? "d" : ""}${opts.showFork ? "f" : ""}`;
   }
 
   /**

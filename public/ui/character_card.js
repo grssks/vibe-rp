@@ -1,4 +1,5 @@
 import { escapeHtml, escapeAttr } from "../safe_html.js";
+import { substitutePlaceholders, resolveCardIdentity } from "../text.js";
 
 // Character card domain logic. No DOM, no storage, no globals.
 //
@@ -103,11 +104,17 @@ export function avatarInnerHtml(url, fallbackLetter) {
   return escapeHtml(letter);
 }
 
-/** The card's blurb, trimmed. May be empty; the view supplies its own copy. */
-export function cardDescription(card) {
+/** The card's blurb, trimmed and placeholder-resolved. May be empty; the view supplies its own copy. */
+export function cardDescription(card, persona = null) {
   const { data } = fields(card);
-  const text = data.description || data.creator_notes || "";
-  return String(text ?? "").trim();
+  const text = String(data.description || data.creator_notes || "").trim();
+  if (!text) return "";
+  const identity = resolveCardIdentity(card);
+  return substitutePlaceholders(text, {
+    user: persona?.name?.trim() || "You",
+    char: identity.actorName || cardTitle(card),
+    persona,
+  });
 }
 
 /**

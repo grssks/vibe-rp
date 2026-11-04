@@ -128,8 +128,16 @@ async function confirmDeleteThing(kind, label) {
 }
 
 function openDetail(card) {
+  const personas = LocalDb.getAllPersonas();
+  const personaId = card?.data?.userPersonaId || card?.userPersonaId;
+  const persona =
+    personas.find((p) => p.id === personaId) ||
+    personas.find((p) => p.isDefault) ||
+    personas[0] ||
+    null;
   openDetailModal({
     card,
+    persona,
     sessions: controller.sessionsFor(card.id),
     // The dialog re-reads this after a rename or a delete, so the list always
     // matches the store rather than the snapshot taken at open time.

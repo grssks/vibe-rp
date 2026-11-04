@@ -40,8 +40,8 @@
     // Placeholders, resolved before formatting so no {{user}} ever shows.
     function resolvePlaceholders(text) {
       return substitutePlaceholders(text, {
-        user: controller.currentPersona?.name || "You",
-        char: controller.charName,
+        user: controller.currentPersona?.name?.trim() || "You",
+        char: controller.charName || "Character",
         persona: controller.currentPersona,
       });
     }
@@ -135,7 +135,7 @@
       if (!msg) return;
 
       if (action === "copy") {
-        const text = stripThoughtBlocks(msg.content);
+        const text = resolvePlaceholders(stripThoughtBlocks(msg.content));
         try {
           await navigator.clipboard.writeText(text);
           const label = button.textContent;
