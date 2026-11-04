@@ -42,6 +42,7 @@
       return substitutePlaceholders(text, {
         user: controller.currentPersona?.name || "You",
         char: controller.charName,
+        persona: controller.currentPersona,
       });
     }
 

@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { formatProse, formatMessages } from "../public/message_format.js";
-import { substitutePlaceholders, renderInlineField, findImpersonationBoundary, pruneImpersonation, looksLikeModelRefusal } from "../public/text.js";
+import { substitutePlaceholders, resolvePronouns, renderInlineField, findImpersonationBoundary, pruneImpersonation, looksLikeModelRefusal } from "../public/text.js";
 import { stripThoughtBlocks as stripThoughts } from "../public/text.js";
 import { escapeHtml } from "../public/safe_html.js";
 
@@ -296,6 +296,35 @@ describe("substitutePlaceholders", () => {
 
   test("is safe against dollar-pattern names", () => {
     expect(substitutePlaceholders("{{user}}", { user: "$& $1", char: "Mira" })).toBe("$& $1");
+  });
+
+  test("resolves JanitorAI and roleplay pronoun macros dynamically", () => {
+    const sample = "Grabbed {{obj}} by {{poss}} shirt. {{Sub}} looked confused. It was {{possp}}. {{SUB}} saw {{ref}}.";
+
+    // Default / neutral
+    expect(substitutePlaceholders(sample, { user: "Sam" }))
+      .toBe("Grabbed them by their shirt. They looked confused. It was theirs. THEY saw themselves.");
+
+    // Masculine persona
+    expect(substitutePlaceholders(sample, { user: "Iqbal", persona: { description: "18, male, high school student" } }))
+      .toBe("Grabbed him by his shirt. He looked confused. It was his. HE saw himself.");
+
+    // Feminine persona
+    expect(substitutePlaceholders(sample, { user: "Elena", persona: { template: "Elena is a quiet girl with she/her pronouns." } }))
+      .toBe("Grabbed her by her shirt. She looked confused. It was hers. SHE saw herself.");
+
+    // Single brace and angle bracket variants
+    expect(substitutePlaceholders("Hit {obj} on <poss> head", { persona: { description: "boy, he/him" } }))
+      .toBe("Hit him on his head");
+  });
+
+  test("resolvePronouns handles edge cases and explicitly checks pronouns/gender", () => {
+    expect(resolvePronouns("").sub).toBe("they");
+    expect(resolvePronouns({ pronouns: "he/him" }).sub).toBe("he");
+    expect(resolvePronouns({ pronouns: "she/her" }).sub).toBe("she");
+    expect(resolvePronouns({ pronouns: "it/its" }).sub).toBe("it");
+    expect(resolvePronouns({ description: "robot with it/its pronouns" }).sub).toBe("it");
+    expect(resolvePronouns({ template: "Nonbinary traveler" }).sub).toBe("they");
   });
 
   test("formatMessages resolves placeholders in rendered prose", () => {

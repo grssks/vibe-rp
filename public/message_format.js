@@ -141,7 +141,7 @@ export function formatMessages({ messages, card, persona, charName, initialLette
     // Resolve card placeholders before formatting: the greeting, alternate
     // greetings and any echoed assistant output must never show `{{user}}` /
     // `{{char}}` on screen.
-    let content = substitutePlaceholders(msg.content, { user: userSpeaker, char: charName });
+    let content = substitutePlaceholders(msg.content, { user: userSpeaker, char: charName, persona });
     content = stripThoughtBlocks(content);
 
     return {

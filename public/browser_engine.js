@@ -228,7 +228,7 @@ export function substituteCardPlaceholders(text, card, persona) {
   if (typeof text !== "string" || !text) return "";
   const cName = firstText(card?.data?.name, card?.name).trim();
   const uName = firstText(persona?.name).trim();
-  return substitutePlaceholders(text, { user: uName || "User", char: cName || "Character" });
+  return substitutePlaceholders(text, { user: uName || "User", char: cName || "Character", persona });
 }
 
 const loreKeyRegexCache = new Map();

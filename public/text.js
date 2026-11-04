@@ -15,17 +15,62 @@ export const utf8Decoder = new TextDecoder();
 
 /**
  * Resolves card placeholders in user-facing text. Pure: the result depends only
- * on the text and the two names, so it stays byte-stable for a given session.
+ * on the text, the participant names, and persona/pronoun configuration.
  * Supports `{{user}}`/`{{char}}` case-insensitively plus the common
- * `{{user_name}}`/`{{UserName}}`/`{{char_name}}` aliases. Unknown placeholders
- * (`{{random}}`, `{{time}}`) and a placeholder with no replacement available are
- * left as literal text rather than deleted.
+ * `{{user_name}}`/`{{UserName}}`/`{{char_name}}` aliases, along with JanitorAI
+ * and roleplay pronoun macros (`{{sub}}`, `{{obj}}`, `{{poss}}`, `{{possp}}`,
+ * `{{ref}}`) with case preservation (`{{Sub}}` -> `He`/`They`, `{{SUB}}` -> `HE`/`THEY`).
+ * Unknown placeholders (`{{random}}`, `{{time}}`) and a placeholder with no
+ * replacement available are left as literal text rather than deleted.
  */
-export function substitutePlaceholders(text, { user, char } = {}) {
+export function resolvePronouns(persona) {
+  const text = typeof persona === "string"
+    ? persona
+    : [persona?.pronouns, persona?.description, persona?.template].filter(Boolean).join(" ");
+  const p = text.toLowerCase();
+
+  const hasHe = /\b(he\/him|he\/his|\bhe\b|\bhim\b|\bhis\b|\bhimself\b|\bmale\b|\bboy\b|\bman\b)\b/.test(p);
+  const hasShe = /\b(she\/her|\bshe\b|\bher\b|\bhers\b|\bherself\b|\bfemale\b|\bgirl\b|\bwoman\b)\b/.test(p);
+  const hasIt = /\b(it\/its|\bit\b|\bits\b|\bitself\b)\b/.test(p);
+
+  if (hasHe && !hasShe) {
+    return { sub: "he", obj: "him", poss: "his", possp: "his", ref: "himself" };
+  }
+  if (hasShe && !hasHe) {
+    return { sub: "she", obj: "her", poss: "her", possp: "hers", ref: "herself" };
+  }
+  if (hasIt && !hasHe && !hasShe) {
+    return { sub: "it", obj: "it", poss: "its", possp: "its", ref: "itself" };
+  }
+  return { sub: "they", obj: "them", poss: "their", possp: "theirs", ref: "themselves" };
+}
+
+function preserveMacroCase(macroMatch, replacement) {
+  if (!replacement) return "";
+  const inner = macroMatch.replace(/^[\{\<]+|[\}\>]+$/g, "").trim();
+  if (inner === inner.toUpperCase()) {
+    return replacement.toUpperCase();
+  }
+  if (inner[0] === inner[0].toUpperCase()) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1);
+  }
+  return replacement;
+}
+
+export function substitutePlaceholders(text, { user, char, pronouns, persona } = {}) {
   if (!text) return "";
   let s = String(text);
   if (user) s = s.replace(/(?:\{\{|\{|<)\s*user(?:_?name)?\s*(?:\}\}|\}|>)/gi, () => user);
   if (char) s = s.replace(/(?:\{\{|\{|<)\s*(?:char|bot)(?:_?name)?\s*(?:\}\}|\}|>)/gi, () => char);
+
+  const pn = pronouns || resolvePronouns(persona);
+  if (pn) {
+    s = s.replace(/(?:\{\{|\{|<)\s*sub\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.sub));
+    s = s.replace(/(?:\{\{|\{|<)\s*obj\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.obj));
+    s = s.replace(/(?:\{\{|\{|<)\s*poss\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.poss));
+    s = s.replace(/(?:\{\{|\{|<)\s*(?:possp|poss_p)\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.possp));
+    s = s.replace(/(?:\{\{|\{|<)\s*ref\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.ref));
+  }
   return s;
 }
 
