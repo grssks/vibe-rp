@@ -732,13 +732,14 @@ describe("stripThoughtBlocks and cleanPromptText", () => {
 
 describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
   test("CHOICE_SYSTEM_PROMPT establishes the full operational contract (language lock, craft, precedence)", () => {
-    // Language lock, perspective, agency and the 4 dramatic archetypes.
+    // Language lock, perspective, agency and dramatic divergence.
     expect(CHOICE_SYSTEM_PROMPT).toContain("Language Lock");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Narrative Perspective");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Direct / Assertive");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Inquisitive / Diplomatic");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Cautious / Observant");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Unconventional / Intuitive");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Dramatic Divergence & Emotional Stakes");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Spoken Dialogue with Voice");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Visceral Instinct & Impulse");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Guarded Subtext & Restraint");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Vulnerability & Personal Stakes");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Each choice names what the player attempts in the immediate beat");
     // Scene craft: beats, subtext, anti-echo.
     expect(CHOICE_SYSTEM_PROMPT).toContain("Scene Beats & Physical Grounding");
@@ -878,14 +879,14 @@ describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
     expect(sysMsg.content).toContain("A mysterious cartographer carrying ancient star charts");
   });
 
-  test("CHOICE_SYSTEM_PROMPT and choicePrompt mandate agency, condition assessment and no disguised NPC control", () => {
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Player Agency vs. Story Continuation");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Condition Assessment");
+  test("CHOICE_SYSTEM_PROMPT and choicePrompt mandate agency, physical reality and independent counterpart agency", () => {
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Player Agency vs. Scene Progression");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Physical Reality & Narrative Agency");
     // The condition gate is stated as what the state permits, not as a ban:
     // outcome-first phrasing, same requirement.
     expect(CHOICE_SYSTEM_PROMPT).toContain("What they can do follows from that state");
     expect(CHOICE_SYSTEM_PROMPT).toContain("every condition takes time to change");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Distinct NPC Agency");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Independent Counterpart Agency");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Plausible Recovery");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Observational Perspective Shifts");
     expect(CHOICE_SYSTEM_PROMPT).toContain("watching events unfold");
@@ -894,8 +895,8 @@ describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
     // Agency is stated once, in the system prompt — not restated in the task
     // line, which travels in the same request.
     expect(p).not.toContain("Agency & Scene State");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Limited Agency");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Distinct NPC Agency");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Restrained or Incapacitated State");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Independent Counterpart Agency");
   });
 
   test("parseChoices parses optional type and pov fields for cutaways and observational options", () => {
@@ -970,7 +971,7 @@ describe("choice deliberation is gated on the model, not always on", () => {
     expect(CHOICE_SYSTEM_PROMPT).not.toContain("Stage 1");
     expect(CHOICE_SYSTEM_PROMPT).not.toContain("Stage 2");
     // The requirement survives even though the emitted artefact is gone.
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Condition Assessment");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Physical Reality & Narrative Agency");
   });
 
   test("the task line asks for the choices directly", () => {

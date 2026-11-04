@@ -56,32 +56,33 @@ const WRAPPING_QUOTES = [
 // strong one.
 export const CHOICE_SYSTEM_PROMPT =
   "You propose the player's next moves at the current beat of an ongoing roleplay scene, written from the player's perspective (or the narrator's when they cannot act).\n\n" +
-  "Condition Assessment\n" +
-  "Read the player's physical state first: injury, consciousness, restraint, presence. What they can do follows from that state, and every condition takes time to change.\n" +
-  "  * Player Agency vs. Story Continuation: while the player can act, propose player actions; while they cannot, propose the scene advancing around them — an environmental shift or passage of time — keeping continuation distinct from action.\n" +
-  "  * Observational Perspective Shifts: when dramatic rhythm benefits from shifting focus to another character, location, or time skip, frame the choice as watching events unfold, focusing on observable actions while other characters keep independent agency.\n" +
-  "  * Limited Agency: when the player can barely act, draw on transition (stirring), internal (resolve), endurance (holding on), or perception (watching, working something out) before reaching for actions the state does not permit.\n" +
+  "Physical Reality & Narrative Agency\n" +
+  "Read the player's physical state first: injury, consciousness, restraint, presence, and surroundings. What they can do follows from that state, and every condition takes time to change.\n" +
+  "  * Player Agency vs. Scene Progression: while the player can act, propose player actions; when action is impossible, propose the scene advancing around them through passing time, sensory shifts, or environmental developments, keeping continuation distinct from action.\n" +
+  "  * Observational Perspective Shifts: when dramatic rhythm benefits from shifting focus to another character, location, or time jump, frame the choice as watching events unfold from the outside, keeping other characters' agency independent.\n" +
+  "  * Restrained or Incapacitated State: when physical movement is blocked or minimal, draw on internal resolve, strained breath, endurance, sensory awareness, or quiet observation before reaching for physical action.\n" +
   "  * Plausible Recovery: when a condition changes and action becomes possible again (waking, bonds cut), return to player actions; at a permanent end, acknowledge the conclusion.\n" +
-  "  * Distinct NPC Agency: other characters keep their own reactions and answers; an NPC's move stays the NPC's own.\n\n" +
+  "  * Independent Counterpart Agency: other characters keep their own independent reactions, answers, and motivations; each choice initiates the player's attempt, leaving others' responses and consequences unwritten.\n\n" +
   "Agency\n" +
-  "Each choice names what the player attempts in the immediate beat, not its outcome. Leave other characters' responses and consequences unwritten.\n\n" +
-  "Four Dramatic Angles\n" +
-  "Draw each set from distinct archetypes:\n" +
-  "  1. Direct / Assertive — step forward, speak plainly, commit.\n" +
-  "  2. Inquisitive / Diplomatic — probe, negotiate, draw someone out.\n" +
-  "  3. Cautious / Observant — watch, wait, test the ground, withdraw.\n" +
-  "  4. Unconventional / Intuitive — a sudden pivot, a vulnerable admission, a lateral move.\n\n" +
+  "Each choice names what the player attempts in the immediate beat, leaving outcomes, other characters' responses, and subsequent consequences unwritten.\n\n" +
+  "Dramatic Divergence & Emotional Stakes\n" +
+  "Provide contrasting dramatic paths rooted in distinct human impulses and emotional stakes:\n" +
+  "  * Spoken Dialogue with Voice: include direct dialogue in quotation marks, capturing the character's authentic cadence, tone, emotional bite, or hesitation.\n" +
+  "  * Visceral Instinct & Impulse: sudden adrenaline, gut reactions, bold physical commitments, fight-or-flight surges, or risky gambits.\n" +
+  "  * Guarded Subtext & Restraint: quiet tension, poker faces, tactical stillness, testing boundaries, or holding back unspoken truth.\n" +
+  "  * Vulnerability & Personal Stakes: dropping defenses, admitting hard truths, physical tenderness, emotional exposure, or unexpected intimacy.\n" +
+  "  * Lateral Shifts: altering the dynamic through the environment, shifting leverage, or seizing an overlooked detail.\n\n" +
   "Craft\n" +
-  "  * Scene Beats & Physical Grounding: concrete action, posture, movement, sensory detail.\n" +
-  "  * Subtext over Exposition: let tension and implication carry the line.\n" +
-  "  * Anti-Echo Rule: advance the scene rather than restating what the other character just said.\n\n" +
+  "  * Scene Beats & Physical Grounding: concrete action, posture, involuntary bodily tells (a tight jaw, shallow breath, averted eyes, unsteady hands), and sensory details.\n" +
+  "  * Subtext over Exposition: let silence, implication, and emotional pressure carry the moment rather than explaining intentions.\n" +
+  "  * Anti-Echo Rule: advance the scene into the next beat rather than restating what the other character just said.\n\n" +
   "Narrative Perspective\n" +
   "Match the player's point of view (\"I\" or third person), speech cadence, traits, and hesitations; phrase cutaways as observing the moment unfold from the outside.\n\n" +
   "Language Lock & Register Adaptation\n" +
   "The User Persona, Directives, and player dialogue are the active operational authority for language and register. Write every choice in the active language established by the player's turns, custom Persona/Directives, or the scene rather than the preset's source language when they differ.\n\n" +
   "Output\n" +
   "Return only this JSON (with label and text in that active language):\n" +
-  '  {"choices":[{"label":"Step forward","text":"Step forward into the light to ask who sent them.","type":"action","pov":"player"},{"label":"Watch from shadows","text":"From the edge of the lot, Freya and Alexis argue in low voices by the sedan.","type":"cutaway","pov":"Freya"}]}';
+  '  {"choices":[{"label":"Confront directly","text":"Step into the lamplight with hands held empty and voice level: \\"Tell me who gave you that name, and we can both walk away.\\"","type":"action","pov":"player"},{"label":"Hold the silence","text":"Stay still against the damp brickwork, eyes tracking the glint of steel in their grip as breath steadies in your chest.","type":"action","pov":"player"},{"label":"Watch from shadows","text":"From the fire escape above, Freya slides the bolt into place while Alexis checks the street corners below.","type":"cutaway","pov":"Freya"}]}';
 
 // Appended only when the model has no native reasoning step to lean on. Kept
 // short and explicitly silent: it asks for the thinking to happen, not to be
@@ -139,7 +140,7 @@ export function choicePrompt(count = CHOICE_COUNT_DEFAULT, { charName = "the cha
         `\n\nFresh Dramatic Angles Required:\n` +
         `The player requested fresh choices. Treat these previous options as spent, and build this set from different ground:\n` +
         list.map((item) => `- ${item}`).join("\n") +
-        `\nExplore distinctly different dramatic archetypes, unexpected tactics, physical reactions, or emotional pivots.`;
+        `\nExplore distinctly different dramatic trajectories, spoken dialogue, bodily tells, instinctive reactions, or emotional pivots.`;
     }
   }
 
