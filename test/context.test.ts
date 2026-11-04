@@ -1097,6 +1097,26 @@ describe("Provider context-overflow adaptation", () => {
     expect(threw).toContain("400");
     expect(calls).toBe(2);
   });
+  test("a provider window smaller than required content emits overflow diagnosis before re-throwing", async () => {
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      return new Response(overflowBody(2048), { status: 400, headers: { "Content-Type": "application/json" } });
+    };
+    const notices = [];
+    const settings = { ...BASE, maxContextTokens: 65536, maxTokens: 1200 };
+    const session = { messages: [{ role: "assistant", content: "greeting" }, { role: "user", content: words(150) }], ledger: "", consumed: 1 };
+    const card = { data: { name: "Elena", description: presetOfTokens(3000) } };
+    let threw = null;
+    try {
+      await BrowserChatEngine.streamTurn({ card, session, settings, persona: null, agentsContract: "", onNotice: (n) => notices.push(n) });
+    } catch (e) {
+      threw = e.message;
+    }
+    expect(threw).toContain("400");
+    expect(calls).toBe(2);
+    expect(notices.some((n) => /exceed the configured prompt budget|static preset/i.test(n))).toBe(true);
+  });
 
   test("an unrelated 400 is not retried", async () => {
     let calls = 0;

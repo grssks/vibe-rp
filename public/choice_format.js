@@ -266,11 +266,11 @@ function findValidChoiceList(text) {
 function entryItem(entry) {
   if (typeof entry === "string") return { text: entry };
   if (!entry || typeof entry !== "object") return null;
-  const hasText = entry.text !== undefined || entry.action !== undefined || entry.detail !== undefined || entry.value !== undefined || entry.choice !== undefined;
-  const rawText = hasText
-    ? (entry.text ?? entry.action ?? entry.detail ?? entry.value ?? entry.choice ?? "")
-    : (entry.label ?? entry.title ?? entry.summary ?? entry.tldr ?? "");
-  const rawLabel = hasText ? (entry.label ?? entry.title ?? entry.summary ?? entry.tldr ?? "") : "";
+  const trimProp = (v) => (typeof v === "string" ? v.trim() : v != null && typeof v !== "object" ? String(v).trim() : "");
+  const textCandidate = trimProp(entry.text) || trimProp(entry.action) || trimProp(entry.detail) || trimProp(entry.value) || trimProp(entry.choice);
+  const labelCandidate = trimProp(entry.label) || trimProp(entry.title) || trimProp(entry.summary) || trimProp(entry.tldr);
+  const rawText = textCandidate || labelCandidate;
+  const rawLabel = textCandidate && labelCandidate ? labelCandidate : "";
   const rawType = entry.type ?? entry.kind ?? entry.category ?? "";
   const rawPov = entry.pov ?? entry.perspective ?? entry.actor ?? entry.viewpoint ?? "";
   const text = typeof rawText === "string" ? rawText : String(rawText || "");

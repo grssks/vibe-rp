@@ -89,6 +89,18 @@ describe("choice parser - the instructed shape", () => {
     expect(choices[1].label).toBe("Step back");
     expect(choices[1].text).toBe("Stepping back toward the lockers without a word.");
   });
+  test("falls back to alternative fields when text is empty string", () => {
+    const raw = JSON.stringify({
+      choices: [
+        { text: "", action: "Drawing the sword and taking a defensive stance." },
+        { text: "   ", detail: "Whispering a quick counter-spell under breath." },
+      ],
+    });
+    const { choices } = parseChoices(raw);
+    expect(choices.length).toBe(2);
+    expect(choices[0].text).toBe("Drawing the sword and taking a defensive stance.");
+    expect(choices[1].text).toBe("Whispering a quick counter-spell under breath.");
+  });
 });
 
 describe("choice parser - validation and sanitation", () => {

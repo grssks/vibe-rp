@@ -26,7 +26,7 @@ describe("avatar allowlist has one home", () => {
     expect(isSafeAvatarUrl("data:image/png;base64,AAA")).toBe(true);
     expect(isSafeAvatarUrl("DATA:IMAGE/JPEG;BASE64,AAA")).toBe(true);
     expect(isSafeAvatarUrl("https://example.com/a.png")).toBe(true);
-    expect(isSafeAvatarUrl("http://example.com/a.png")).toBe(true);
+    expect(isSafeAvatarUrl("http://example.com/a.png")).toBe(false);
     expect(isSafeAvatarUrl("  https://example.com/a.png  ")).toBe(true);
     expect(isSafeAvatarUrl("data:text/html,<script>alert(1)</script>")).toBe(false);
     expect(isSafeAvatarUrl("data:application/javascript,alert(1)")).toBe(false);

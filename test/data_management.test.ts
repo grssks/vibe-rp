@@ -291,7 +291,7 @@ describe("Cookie serialization helpers", () => {
     ]);
   });
 
-  test("restoreBrowserCookies sets cookies safely with SameSite=Lax", () => {
+  test("restoreBrowserCookies sets cookies safely with SameSite=Lax, filtering prefix and delimiters", () => {
     const setLog: string[] = [];
     (globalThis as any).document = {
       get cookie() {
@@ -303,13 +303,15 @@ describe("Cookie serialization helpers", () => {
     };
 
     restoreBrowserCookies([
+      { name: "vibe_rp_pref", value: "prose" },
+      { name: "vibe_rp_token\r\n;injected", value: "xyz;path=/evil\r\n" },
       { name: "user_pref", value: "prose" },
-      { name: "token", value: "xyz" },
+      { name: "session_id", value: "hijacked" },
     ]);
 
     expect(setLog.length).toBe(2);
-    expect(setLog[0]).toBe("user_pref=prose; path=/; max-age=31536000; SameSite=Lax");
-    expect(setLog[1]).toBe("token=xyz; path=/; max-age=31536000; SameSite=Lax");
+    expect(setLog[0]).toBe("vibe_rp_pref=prose; path=/; max-age=31536000; SameSite=Lax");
+    expect(setLog[1]).toBe("vibe_rp_tokeninjected=xyzpath=/evil; path=/; max-age=31536000; SameSite=Lax");
   });
 
   test("clearBrowserCookies expires all existing cookies", () => {

@@ -30,10 +30,12 @@ export function readBrowserCookies() {
  */
 export function restoreBrowserCookies(cookies = []) {
   if (typeof document === "undefined" || !Array.isArray(cookies)) return;
+  // ponytail: cookie namespace strictly vibe_rp_, upgrade to prefix allowlist if custom namespaces needed
   for (const c of cookies) {
     if (!c || !c.name) continue;
-    const name = String(c.name).trim();
-    const val = String(c.value ?? "").trim();
+    const name = String(c.name).replace(/[\r\n;]/g, "").trim();
+    if (!name.startsWith("vibe_rp_")) continue;
+    const val = String(c.value ?? "").replace(/[\r\n;]/g, "").trim();
     document.cookie = `${name}=${val}; path=/; max-age=31536000; SameSite=Lax`;
   }
 }

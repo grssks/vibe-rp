@@ -317,6 +317,19 @@ describe("Compaction stress - ledger bound helper", () => {
     expect(estimateTokens(clipped)).toBeLessThanOrEqual(2048);
     expect(clipped).not.toContain("\ufffd"); // no replacement character
   });
+  test("clipLedgerToTokens trims multi-byte strings that fit byteBudget but exceed token limit", () => {
+    // CJK characters have ~3 bytes in UTF-8, but estimateTokens weights them ~0.95 tokens/char (~0.31 tokens/byte).
+    // byteBudget = (limit - markerTokens) * 4.
+    // If str has N CJK characters: bytes = 3*N, tokens ~= 0.95*N.
+    // When 0.95*N > limit but 3*N <= (limit - markerTokens) * 4, bytes fit byteBudget,
+    // but tokens exceed limit without the unconditional while loop.
+    const cjk = "\u4e2d\u6587".repeat(100);
+    const tokens = estimateTokens(cjk);
+    const limit = Math.floor(tokens * 0.7);
+    const clipped = clipLedgerToTokens(cjk, limit);
+    expect(estimateTokens(clipped)).toBeLessThanOrEqual(limit);
+    expect(clipped).toContain("omitted at the size ceiling");
+  });
 });
 
 // The compliant word target plus prompt overhead is comfortably under this; it

@@ -175,13 +175,13 @@ export function clipLedgerToTokens(text, maxTokens, marker = "\n- [older ledger 
     const sp = kept.lastIndexOf(" ");
     const cut = nl > kept.length * 0.5 ? nl : sp > kept.length * 0.5 ? sp : -1;
     if (cut > 0) kept = kept.slice(0, cut);
-    // Shrink geometrically, not one char at a time: the naive loop is
-    // quadratic on a huge multibyte ledger clipped to a tiny limit.
-    while (kept && estimateTokens(`${kept}${marker}`) > limit) {
-      const over = estimateTokens(`${kept}${marker}`) - limit;
-      const drop = Math.max(1, Math.ceil(over * 4 * 1.1));
-      kept = kept.slice(0, Math.max(0, kept.length - drop));
-    }
+  }
+  // Shrink geometrically, not one char at a time: the naive loop is
+  // quadratic on a huge multibyte ledger clipped to a tiny limit.
+  while (kept && estimateTokens(`${kept}${marker}`) > limit) {
+    const over = estimateTokens(`${kept}${marker}`) - limit;
+    const drop = Math.max(1, Math.ceil(over * 4 * 1.1));
+    kept = kept.slice(0, Math.max(0, kept.length - drop));
   }
   return `${kept}${marker}`;
 }

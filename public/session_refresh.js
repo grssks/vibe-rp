@@ -338,6 +338,7 @@ export function installProactiveRefresh(options = {}) {
     if (!stored?.accessToken) return;
     await ensureFreshSession(stored, options);
   };
+  tick().catch(() => {});
   let timer = null;
   if (typeof setI === "function") {
     timer = setI(() => { tick().catch(() => {}); }, Number.isFinite(options.intervalMs) ? options.intervalMs : AUTO_REFRESH_INTERVAL_MS);

@@ -63,18 +63,18 @@ export function cardTags(card) {
 
 /**
  * True when `url` is a portrait source the app will hand to an `<img>`.
- * One home for the allowlist: `data:image/…` and `http(s):` only. Anything
+ * One home for the allowlist: `data:image/…` and `https:` only. Anything
  * else (a bare `data:` payload, `javascript:`, `blob:`, a relative path) is
  * rejected so a stored card field can never become an unexpected scheme.
  */
 export function isSafeAvatarUrl(url) {
   const src = String(url || "").trim();
-  return /^data:image\//i.test(src) || /^https?:\/\//i.test(src);
+  return /^data:image\//i.test(src) || /^https:\/\//i.test(src);
 }
 
 /**
  * A usable image source, or an empty string when the card has no portrait.
- * Only `data:image/...` and `http(s):` URLs are accepted: anything else (a
+ * Only `data:image/...` and `https:` URLs are accepted: anything else (a
  * bare `data:` payload, a `javascript:` URL) is dropped rather than handed to
  * an `<img src>`. This is defence in depth behind the escaping in safe_html.
  */

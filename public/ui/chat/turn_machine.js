@@ -163,8 +163,10 @@ export function createTurnMachine({
       // state with no way forward.
       if (isChoiceMode()) onChoiceTurnFailed();
     } finally {
-      activeStream = null;
-      setBusy(false);
+      if (activeStream === turn) {
+        activeStream = null;
+        setBusy(false);
+      }
       // The turn is over, but the reader is not told that: the status line is
       // cleared to nothing, and the streaming prose element stops being a live
       // region as it settles. Saying so here is the second half of that

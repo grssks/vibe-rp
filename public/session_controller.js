@@ -472,6 +472,7 @@ export class SessionController {
     // returns empty text without throwing. send() rolls the turn back so retry
     // is clean.
     if (!assistantMsg.content) {
+      if (this.choiceState.status === CHOICE_STATUS.SUBMITTING) this.#resetChoiceState();
       if (assistantMsg && targetSession?.messages) {
         const idx = targetSession.messages.indexOf(assistantMsg);
         if (idx !== -1) targetSession.messages.splice(idx, 1);
@@ -483,6 +484,7 @@ export class SessionController {
     // so the corrupt turn is never saved to the transcript, and throw a descriptive
     // error with a recovery hint.
     if (looksLikeModelRefusal(assistantMsg.content)) {
+      if (this.choiceState.status === CHOICE_STATUS.SUBMITTING) this.#resetChoiceState();
       if (assistantMsg && targetSession?.messages) {
         const idx = targetSession.messages.indexOf(assistantMsg);
         if (idx !== -1) targetSession.messages.splice(idx, 1);

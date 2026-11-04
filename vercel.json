@@ -2,11 +2,13 @@
   "version": 2,
   "outputDirectory": "public",
   "cleanUrls": true,
+  "redirects": [
+    { "source": "/settings", "destination": "/?openSettings=1", "permanent": false },
+    { "source": "/directives", "destination": "/?openSettings=1&tab=settings-system-prompts-tab", "permanent": false },
+    { "source": "/personas", "destination": "/?openSettings=1&tab=settings-personas-tab", "permanent": false }
+  ],
   "rewrites": [
     { "source": "/chat", "destination": "/chat.html" },
-    { "source": "/settings", "destination": "/index.html?openSettings=1" },
-    { "source": "/directives", "destination": "/index.html?openSettings=1&tab=settings-system-prompts-tab" },
-    { "source": "/personas", "destination": "/index.html?openSettings=1&tab=settings-personas-tab" },
     { "source": "/(.*)", "destination": "/$1" }
   ],
   "headers": [

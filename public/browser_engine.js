@@ -2300,7 +2300,14 @@ export class BrowserChatEngine {
             : `The request exceeded the provider's token limit and was re-compacted to ~${targetWindow} tokens.`
         );
       }
-      fullText = await send(request);
+      try {
+        fullText = await send(request);
+      } catch (retryErr) {
+        if (request.impossible && onNotice) {
+          onNotice(this.#overflowReport(request, ledgerCondensed));
+        }
+        throw retryErr;
+      }
     }
 
     // Prune hallucinated player turns at the tail to preserve player agency.

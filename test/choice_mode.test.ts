@@ -302,6 +302,51 @@ describe("Choice Mode - a failed turn never dead-ends the machine", () => {
     const state = await ctl.requestChoices();
     expect(state.status).toBe(CHOICE_STATUS.READY);
   });
+  test("empty stream response resets submitting choiceState to idle", async () => {
+    let streamCalls = 0;
+    const engine = {
+      async streamTurn() {
+        streamCalls++;
+        if (streamCalls === 1) return "First greeting.";
+        return "";
+      },
+      async generateChoices() {
+        return { choices: [{ id: "c1", text: "Ask." }] };
+      },
+    };
+    const { ctl } = await makeController({ engine });
+    await ctl.send("Hello.");
+    await ctl.requestChoices();
+    const pick = ctl.selectChoice(ctl.choiceState.choices[0].id);
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.SUBMITTING);
+    ctl.appendMessage({ role: "user", content: pick.text });
+    await expect(ctl.streamResponse()).rejects.toThrow("empty reply");
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.IDLE);
+    expect(ctl.choiceState.selectedId).toBeNull();
+  });
+
+  test("model refusal response resets submitting choiceState to idle", async () => {
+    let streamCalls = 0;
+    const engine = {
+      async streamTurn() {
+        streamCalls++;
+        if (streamCalls === 1) return "First greeting.";
+        return "I am sorry, but as an AI language model I cannot continue this scenario.";
+      },
+      async generateChoices() {
+        return { choices: [{ id: "c1", text: "Ask." }] };
+      },
+    };
+    const { ctl } = await makeController({ engine });
+    await ctl.send("Hello.");
+    await ctl.requestChoices();
+    const pick = ctl.selectChoice(ctl.choiceState.choices[0].id);
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.SUBMITTING);
+    ctl.appendMessage({ role: "user", content: pick.text });
+    await expect(ctl.streamResponse()).rejects.toThrow("declined to continue");
+    expect(ctl.choiceState.status).toBe(CHOICE_STATUS.IDLE);
+    expect(ctl.choiceState.selectedId).toBeNull();
+  });
 });
 
 describe("Choice Mode - the scene must await the player", () => {

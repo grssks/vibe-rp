@@ -154,13 +154,8 @@ async function digest(text) {
 // is the document/module mismatch this whole file exists to prevent.
 async function contentDigest(entry) {
   if (entry.isText) return digest(entry.text);
-  const bytes = new Uint8Array(entry.body);
-  let bin = "";
-  const CHUNK = 0x8000; // bounded so String.fromCharCode never sees a huge arg list
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return digest(bin);
+  const hash = await crypto.subtle.digest("SHA-1", entry.body);
+  return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // References a fetched shell file points at. Same-origin only, so a cross-origin
@@ -404,7 +399,7 @@ function navigationFallback(url) {
 // hides a mistyped or probing URL from the reader. `serve.js` owns the route
 // table (`/` and `/chat`); this list mirrors it and nothing else.
 function isAppRoute(url) {
-  return url.pathname === "/" || /^\/(?:index\.html|chat(?:\.html)?)\/?$/.test(url.pathname);
+  return url.pathname === "/" || /^\/(?:index\.html|chat(?:\.html)?|settings|directives|personas)\/?$/.test(url.pathname);
 }
 
 // Canonical document key. `/`, `/index.html`, `/chat` and `/chat.html` (with or
@@ -515,8 +510,8 @@ self.addEventListener("fetch", (event) => {
         } catch {
           return (
             (await cache.match(key, { ignoreSearch: true })) ||
-            (await cache.match(absolute(navigationFallback(url)))) ||
-            (await cache.match(absolute("./index.html"))) ||
+            (await cache.match(absolute(navigationFallback(url)), { ignoreSearch: true })) ||
+            (await cache.match(absolute("./index.html"), { ignoreSearch: true })) ||
             Response.error()
           );
         }

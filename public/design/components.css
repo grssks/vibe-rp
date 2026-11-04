@@ -1217,7 +1217,7 @@ dialog.rp-dialog:not([open]) {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
-  background-color: var(--surface-base);
+  background-color: var(--surface);
   border: var(--border-width) solid var(--border-hairline);
   border-radius: var(--radius-sm);
   font-size: var(--text-xs);
@@ -2290,7 +2290,7 @@ dialog.rp-dialog:not([open]) {
   .rp-settings__tabs .rp-tab[aria-selected="true"],
   .rp-settings__tabs .rp-tab.is-active {
     color: var(--ink);
-    background-color: var(--surface-base);
+    background-color: var(--surface);
     border-color: var(--accent-annotation);
     box-shadow: var(--shadow-sm);
   }
