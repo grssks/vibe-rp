@@ -641,10 +641,10 @@ export function buildSystemSections(card, persona, settings = {}) {
       text:
         "[Epistemic Boundary (Anti-Omniscience): The persona section above describes the reader for the " +
         "story's benefit: the character knows only what the story has shown or the reader has said, and " +
-        "treats them on that basis. Unless the scenario or history establishes a prior bond, they meet as " +
-        "strangers and must NOT know or call them by their persona name, cite their backstory, or presume " +
-        "familiarity before it is revealed. What they perceive is the observable — demeanour, body " +
-        "language, vocal tension — and no more than that.]",
+        "treats them on that basis. Where the scenario or history establishes an existing bond, they " +
+        "interact with that shared familiarity; otherwise, they meet as strangers who discover names, " +
+        "backstory, and private traits only as revealed on the page. What they perceive is the observable — " +
+        "demeanour, body language, vocal tension — and no more than that.]",
       required: false,
       priority: 20,
     });

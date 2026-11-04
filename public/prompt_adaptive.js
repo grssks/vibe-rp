@@ -136,8 +136,8 @@ export const PROSE_TICS = [
   {
     id: "emotionMix",
     priority: 66,
-    threshold: 1,
-    note: 'Name the one feeling; let the body carry it. The last replies reached for an emotional cocktail ("a mix of dread and relief").',
+    threshold: 2,
+    note: 'Anchor conflicted feelings in concrete physical reactions. The last replies leaned on abstract emotional pairing ("a mix of dread and relief").',
     count: (text) => countMatches(text, /\b(?:a|the)\s+(?:mix|mixture|blend|combination|flood|wave)\s+of\s+\w+(\s+\w+)?\s+and\s+\w+/gi),
   },
   {
@@ -176,14 +176,14 @@ export const PROSE_TICS = [
   {
     id: "simileTic",
     priority: 44,
-    threshold: 4,
+    threshold: 5,
     note: 'Trust the image on the page. The last replies kept reaching for "the way ..." similes.',
-    count: (text) => countMatches(text, /\bthe way\b/gi),
+    count: (text) => countMatches(text, /\bthe way\s+(?:she|he|they|it|the|his|her|their|one)\b/gi),
   },
   {
     id: "negatedAction",
     priority: 48,
-    threshold: 5,
+    threshold: 7,
     note: 'Show the action that did happen. The last replies leaned on "did not / would not" negations.',
     count: (text) => countMatches(text, /\b(?:did not|didn'?t|does not|doesn'?t|had not|hadn'?t|would not|wouldn'?t|will not|won'?t)\b/gi),
   },

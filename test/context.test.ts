@@ -687,7 +687,7 @@ describe("Context planners - history hygiene and lore selection", () => {
     expect(sys).toContain("[User Persona: Rin]");
     expect(sys).toContain("Card Reading:");
     expect(sys).toContain("Epistemic Boundary (Anti-Omniscience)");
-    expect(sys).toContain("must NOT know or call them by their persona name");
+    expect(sys).toContain("discover names, backstory, and private traits only as revealed on the page");
   });
 
   // The precedence section is `required`, so it is never dropped. Every other
