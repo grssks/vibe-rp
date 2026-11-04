@@ -337,3 +337,122 @@ export function looksLikeModelRefusal(text) {
   return Boolean(match && match.index <= 80);
 }
 
+const TAGLINE_PUNCT_RE = /[!|?~:;\/]|(?:\s[-–—]\s)|[\(\)\[\]]/;
+const TAGLINE_WORDS_RE =
+  /\b(?:rpg|simulator|world|isekai|sandbox|scenario|adventure|edition|multiple|harem|family|friends|sisters|brothers|bully|bullies|step-?sis|step-?mom|step-?bro|girlfriend|boyfriend|wife|husband|roommate|classmate|neighbor|slapped|needs|returning|only\s+to|move\s+into|your|you)\b/i;
+const RPG_TITLE_RE = /\b(?:rpg|simulator|world|isekai|sandbox)\b/i;
+const DECLARED_NAME_RE =
+  /(?:^|\n)\s*(?:#{1,6}\s*|\*{1,2}|-\s*\*{0,2}|\[)?\s*(?:full\s+name|character(?:'s)?\s+name|char\s+name|name|nama(?:\s+lengkap)?)\s*(?:\*{1,2}|#{1,6})?\s*[:：]\s*(?:\n+\s*)?([^\n\[*#<({|\]]+)/gi;
+const NON_NAME_VALUE_RE = /^(?:user|you|none|n\/a|unknown|tbd|character|protagonist|player|narrator|various|multiple)$/i;
+
+function firstString(...values) {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+export function isTaglineOrScenarioTitle(name) {
+  if (typeof name !== "string") return false;
+  const trimmed = name.trim();
+  if (!trimmed) return false;
+  if (/\r|\n/.test(trimmed)) return true;
+  if (TAGLINE_PUNCT_RE.test(trimmed)) return true;
+  const words = trimmed.split(/\s+/);
+  if (words.length >= 5) return true;
+  if (TAGLINE_WORDS_RE.test(trimmed)) return true;
+  return false;
+}
+
+export function extractDeclaredCharacterNames(...texts) {
+  const names = [];
+  for (const raw of texts) {
+    if (typeof raw !== "string" || !raw) continue;
+    DECLARED_NAME_RE.lastIndex = 0;
+    let m;
+    while ((m = DECLARED_NAME_RE.exec(raw)) !== null) {
+      const candidate = m[1]
+        .replace(/^[\s"'`“”‘’*_-]+|[\s"'`“”‘’*_.,;:-]+$/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (candidate.length < 2 || candidate.length > 48) continue;
+      if (/\{\{.*\}\}/.test(candidate) || NON_NAME_VALUE_RE.test(candidate)) continue;
+      const words = candidate.split(/\s+/);
+      if (words.length < 1 || words.length > 4) continue;
+      if (isTaglineOrScenarioTitle(candidate)) continue;
+
+      const candLower = candidate.toLowerCase();
+      const candTokens = candLower.split(/\s+/);
+      const existingIdx = names.findIndex((existing) => {
+        const exLower = existing.toLowerCase();
+        if (exLower === candLower) return true;
+        const exTokens = exLower.split(/\s+/);
+        return exTokens.includes(candLower) || candTokens.includes(exLower);
+      });
+      if (existingIdx === -1) {
+        names.push(candidate);
+      } else if (candidate.length > names[existingIdx].length) {
+        names[existingIdx] = candidate;
+      }
+    }
+  }
+  return names;
+}
+
+export function resolveCardIdentity(card) {
+  const data = card?.data && typeof card.data === "object" ? card.data : card || {};
+  const rawName = firstString(data?.name, card?.name);
+  const chatName = firstString(data?.chat_name, card?.chat_name);
+  if (chatName && !isTaglineOrScenarioTitle(chatName)) {
+    return {
+      actorName: chatName,
+      displayName: chatName,
+      isMultiCharOrRpg: false,
+      declaredCharacters: [],
+    };
+  }
+
+  const declared = extractDeclaredCharacterNames(
+    firstString(data?.personality, card?.personality),
+    firstString(data?.description, card?.description),
+    firstString(data?.system_prompt, card?.system_prompt),
+    firstString(data?.scenario, card?.scenario)
+  );
+  const tagline = isTaglineOrScenarioTitle(rawName);
+  const isRpg = RPG_TITLE_RE.test(rawName);
+
+  if (tagline) {
+    if (declared.length === 1 && !isRpg) {
+      return {
+        actorName: declared[0],
+        displayName: declared[0],
+        isMultiCharOrRpg: false,
+        declaredCharacters: [],
+      };
+    }
+    return {
+      actorName: "the cast",
+      displayName: rawName || "Character",
+      isMultiCharOrRpg: true,
+      declaredCharacters: declared.length >= 2 ? declared : [],
+    };
+  }
+
+  if (declared.length >= 2) {
+    return {
+      actorName: rawName || "the cast",
+      displayName: rawName || "Character",
+      isMultiCharOrRpg: true,
+      declaredCharacters: declared,
+    };
+  }
+
+  return {
+    actorName: rawName || "Character",
+    displayName: rawName || "Character",
+    isMultiCharOrRpg: false,
+    declaredCharacters: [],
+  };
+}
+
+

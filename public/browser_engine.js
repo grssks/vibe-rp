@@ -18,7 +18,7 @@ import {
   parseChoices,
   CHOICE_COUNT_DEFAULT,
 } from "./choice_format.js";
-import { substitutePlaceholders, stripThoughtBlocks, renderInlineField, neutralizeDelimiters, pruneImpersonation } from "./text.js";
+import { substitutePlaceholders, stripThoughtBlocks, renderInlineField, neutralizeDelimiters, pruneImpersonation, resolveCardIdentity } from "./text.js";
 import {
   analyzeTurnState,
   buildSceneGuidance,
@@ -226,7 +226,7 @@ function firstText(...values) {
  */
 export function substituteCardPlaceholders(text, card, persona) {
   if (typeof text !== "string" || !text) return "";
-  const cName = firstText(card?.data?.name, card?.name).trim();
+  const cName = resolveCardIdentity(card).actorName;
   const uName = firstText(persona?.name).trim();
   return substitutePlaceholders(text, { user: uName || "User", char: cName || "Character", persona });
 }
@@ -440,8 +440,9 @@ export function ensembleCast(card) {
     (Array.isArray(card?.data?.extensions?.characters) && card.data.extensions.characters) ||
     (Array.isArray(card?.data?.characters) && card.data.characters) ||
     (Array.isArray(card?.characters) && card.characters) ||
-    [];
-  return rawRoster
+    null;
+  const sourceList = rawRoster || resolveCardIdentity(card).declaredCharacters;
+  return sourceList
     .map((member) => {
       if (!member) return null;
       if (typeof member === "string") {
@@ -490,7 +491,8 @@ export function buildSystemSections(card, persona, settings = {}) {
   // A name is interpolated into a one-line heading and a bracketed slot, so it
   // is flattened first: a newline in a card name would otherwise open a new
   // line that reads as a section heading of the model's own.
-  const cName = renderInlineField(firstText(card?.data?.name, card?.name) || "Character");
+  const identity = resolveCardIdentity(card);
+  const cName = renderInlineField(identity.displayName || "Character");
   sections.push({ id: "character", text: `### CHARACTER IN SCENE: ${cName}`, required: true, priority: 1000 });
 
   const cardSystemPrompt = sub(firstText(card?.data?.system_prompt, card?.system_prompt));
@@ -740,7 +742,11 @@ export function planChoiceRequest({
   // One-line slots: a card name or persona name containing a newline could open
   // a new prompt line and impersonate a section heading. renderInlineField
   // flattens and clamps before interpolation.
-  const name = renderInlineField(charName || card?.data?.name || card?.name || "the character");
+  const rawCardName = firstText(card?.data?.name, card?.name).trim();
+  const resolvedActor = card ? resolveCardIdentity(card).actorName : "";
+  const effectiveCharName =
+    charName && charName !== rawCardName ? charName : (resolvedActor || charName || "the character");
+  const name = renderInlineField(effectiveCharName);
   const who = renderInlineField(playerName || persona?.name || "the protagonist");
 
   const task = choicePrompt(count, {
@@ -1981,7 +1987,7 @@ export class BrowserChatEngine {
       : "";
     const sceneState = analyzeTurnState({
       messages: all,
-      charName: card ? card.data?.name || card.name || "" : "",
+      charName: card ? resolveCardIdentity(card).actorName : "",
       playerName: activePersona?.name || "",
       castNames: ensembleCast(card).map((member) => member.name),
       folded: Boolean(session?.ledger),

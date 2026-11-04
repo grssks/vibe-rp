@@ -170,7 +170,7 @@ function startRename(session, titleBtn, handlers) {
 
 export function openDetailModal({ card, sessions = [], loadSessions = null, handlers = {}, host } = {}) {
   const data = card?.data && typeof card.data === "object" ? card.data : card || {};
-  const name = cardTitle(card);
+  let name = cardTitle(card);
 
   // Character hero header.
   const portraitInner = el("div", { class: "rp-detail__portrait-inner" });
@@ -219,11 +219,74 @@ export function openDetailModal({ card, sessions = [], loadSessions = null, hand
   }
   paintPortrait(cardAvatarUrl(card));
 
-  const nickname = String(data.nickname || "").trim();
+  const nameHeading = el("h2", { class: "rp-detail__name", id: "rp-detail-name" });
+  function paintNameButton() {
+    nameHeading.replaceChildren();
+    const nameBtn = el("button", {
+      type: "button",
+      class: "rp-detail__name-btn",
+      text: name,
+      attrs: {
+        "aria-label": `Rename ${name}`,
+        title: "Click to rename character",
+      },
+    });
+    nameBtn.addEventListener("click", () => startCardRename(nameBtn));
+    nameHeading.appendChild(nameBtn);
+  }
+
+  function startCardRename(nameBtn) {
+    const original = name;
+    const input = el("input", {
+      type: "text",
+      class: "rp-input rp-detail__name-input",
+      value: original,
+      maxlength: 80,
+      attrs: { "aria-label": "Rename character" },
+    });
+    nameBtn.replaceWith(input);
+    input.focus();
+    input.select();
+    let renameSettled = false;
+    const finish = async (save) => {
+      if (renameSettled) return;
+      renameSettled = true;
+      const next = (save ? input.value.trim() : original) || original;
+      if (save && next !== original) {
+        try {
+          await handlers.onRenameCard?.(card, next);
+          name = next;
+          if (card.data && typeof card.data === "object") card.data.name = next;
+          card.name = next;
+          changeAvatar.setAttribute("aria-label", `Change the artwork for ${name}`);
+          deleteBtn.setAttribute("aria-label", `Delete "${name}"`);
+          paintPortrait(cardAvatarUrl(card));
+          host?.toast?.(`Character renamed to "${name}".`, { tone: "success" });
+        } catch (error) {
+          host?.toast?.(`Could not rename character: ${error.message}`, { tone: "danger" });
+        }
+      }
+      paintNameButton();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+  }
+  paintNameButton();
+
+  const nickname = String(data.nickname || data.extensions?.source?.title || "").trim();
   const hero = el("div", { class: "rp-detail__hero" }, [
     changeAvatar,
     el("div", { class: "rp-detail__hero-meta" }, [
-      el("h2", { class: "rp-detail__name", id: "rp-detail-name", text: name }),
+      nameHeading,
       nickname && nickname.toLowerCase() !== name.toLowerCase()
         ? el("p", { class: "rp-detail__nickname", text: `"${nickname}"` })
         : null,

@@ -12,7 +12,7 @@ import { LocalDb } from "./local_db.js";
 import { BrowserChatEngine } from "./browser_engine.js";
 import { applyFold, resetLedger, captureLedgerState, restoreLedgerState, resetLedgerIfInvalidated, ledgerDescribes } from "./session_state.js";
 import { recordUsageSample, scopeKeyOf, buildUsageScopeKey } from "./usage_history.js";
-import { looksLikeModelRefusal } from "./text.js";
+import { looksLikeModelRefusal, resolveCardIdentity } from "./text.js";
 
 const GREETING_FALLBACK = "The door closes behind you. Silence settles into the corridor.";
 const INITIAL_TITLE = "Chapter 1: The Initial Approach";
@@ -116,7 +116,8 @@ export class SessionController {
   }
 
   get charName() {
-    return this.activeCard?.data?.name || this.activeCard?.name || "Character";
+    if (!this.activeCard) return "Character";
+    return resolveCardIdentity(this.activeCard).displayName || "Character";
   }
 
   get initialLetter() {

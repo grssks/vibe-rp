@@ -151,6 +151,9 @@ function openDetail(card) {
         await controller.refresh();
         return dataUrl;
       },
+      onRenameCard: async (target, nextName) => {
+        await controller.renameCard(target.id, nextName);
+      },
       onRenameSession: async (session, title) => {
         await controller.renameSession(session.id, title);
       },

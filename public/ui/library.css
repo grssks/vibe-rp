@@ -363,6 +363,41 @@
   overflow-wrap: anywhere;
 }
 
+.rp-detail__name-btn {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  padding: 0;
+  text-align: start;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rp-detail__name-btn:hover {
+    color: var(--accent-annotation);
+  }
+}
+
+.rp-detail__name-btn:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.rp-detail__name-input {
+  min-height: var(--target-min);
+  font-family: var(--font-prose);
+  font-size: var(--text-lg);
+}
+
 .rp-detail__nickname {
   color: var(--ink-muted);
   font-family: var(--font-prose);

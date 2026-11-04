@@ -3,7 +3,7 @@
 
 import { parseJsonLoose, normalizeCard, stripJsonComments, parsePngChara, parseWebpChara, htmlToAppMarkup } from "./card_parse.js";
 import { ensureFreshSession, refreshSession, maybeAutoStartProactiveRefresh } from "./session_refresh.js";
-import { utf8Decoder } from "./text.js";
+import { utf8Decoder, resolveCardIdentity } from "./text.js";
 
 // Fetch is injectable so callers (and tests) can supply one; default is global.
 function resolveFetch(options) {
@@ -132,6 +132,10 @@ export function mapSourceJsonToCard(json, sourceUrl) {
     scenario: clean(json.scenario),
     first_mes: clean(json.first_message),
   };
+  const resolved = resolveCardIdentity({ data });
+  if (!chatName && resolved.displayName && resolved.displayName !== data.name) {
+    data.name = resolved.displayName;
+  }
   if (json.first_messages && json.first_messages.length) data.alternate_greetings = json.first_messages.map(clean);
   if (json.example_dialogs != null && json.example_dialogs !== "") data.example_dialogs = clean(json.example_dialogs);
   if (json.creator_name) data.creator = json.creator_name;
@@ -147,7 +151,7 @@ export function mapSourceJsonToCard(json, sourceUrl) {
   const ext = {
     source: { avatar_url: `https://ella.janitorai.com/bot-avatars/${json.avatar}?width=400` },
   };
-  if (chatName && chatName !== json.name) ext.source.title = json.name;
+  if (data.name !== json.name) ext.source.title = json.name;
   if (json.is_nsfw !== undefined) ext.source.is_nsfw = json.is_nsfw;
   if (json.allow_proxy !== undefined) ext.source.allow_proxy = json.allow_proxy;
   if (json.created_at) ext.source.created_at = json.created_at;

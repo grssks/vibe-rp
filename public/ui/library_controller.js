@@ -138,6 +138,34 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
     await refresh();
   }
 
+  /** Renames a card in place and reloads. */
+  async function renameCard(cardId, name) {
+    const card = state.cards.find((item) => item.id === cardId);
+    if (!card) return null;
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return card;
+    const prevData = card.data && typeof card.data === "object" ? card.data : {};
+    const prevName = String(prevData.name || card.name || "").trim();
+    const prevExt = prevData.extensions && typeof prevData.extensions === "object" ? prevData.extensions : {};
+    const prevSource = prevExt.source && typeof prevExt.source === "object" ? prevExt.source : null;
+    const extensions =
+      prevSource && prevName && prevName !== trimmed && !prevSource.title
+        ? { ...prevExt, source: { ...prevSource, title: prevName } }
+        : prevExt;
+    const next = {
+      ...card,
+      name: trimmed,
+      data: { ...prevData, name: trimmed, ...(Object.keys(extensions).length ? { extensions } : {}) },
+    };
+    delete next.sessions;
+    delete next.sessionCount;
+    delete next.latestSession;
+    delete next.lastUpdated;
+    await db.saveCard(next);
+    await refresh();
+    return getCard(cardId);
+  }
+
   /** Renames a session in place and reloads. */
   async function renameSession(sessionId, title) {
     const session = state.sessions.find((item) => item.id === sessionId);
@@ -173,6 +201,7 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
     refresh,
     importCard,
     removeCard,
+    renameCard,
     removeSession,
     renameSession,
     getCard,

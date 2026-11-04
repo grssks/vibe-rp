@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { BrowserChatEngine, detectParameterRejection } from "../public/browser_engine.js";
+import { BrowserChatEngine, detectParameterRejection, ensembleCast } from "../public/browser_engine.js";
 import { promptCacheKeyFor } from "../public/model_capability.js";
 import { countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
 import { mapSourceJsonToCard } from "../public/remote_import.js";
+import { resolveCardIdentity } from "../public/text.js";
 
 const msgs = [{ role: "user", content: "hi" }];
 
@@ -46,10 +47,73 @@ describe("source import names the character, not the listing", () => {
     expect(card.data.name).toBe("Bitchy Goth girl slapped you!");
     expect("title" in card.data.extensions.source).toBe(false);
   });
+
+  test("7. single-character tagline card resolves declared Full name in sheet on import and at runtime", () => {
+    const withSheet = {
+      ...base,
+      personality: "# Full name:\n\nSaki Himekawa\n\n# Appearance:\nGoth outfit",
+    };
+    const imported = mapSourceJsonToCard(withSheet, "https://janitorai.com/x");
+    expect(imported.data.name).toBe("Saki Himekawa");
+    expect(imported.data.extensions.source.title).toBe("Bitchy Goth girl slapped you!");
+
+    // Existing card in IndexedDB whose data.name is still the tagline:
+    const legacyCard = { data: { name: "Bitchy Goth girl slapped you!", personality: "# Full name:\n\nSaki Himekawa" } };
+    const plan = BrowserChatEngine.planRequest({
+      card: legacyCard,
+      session: { messages: [{ role: "user", content: "Halo" }] },
+      persona: { name: "Iqbal" },
+      settings: {},
+    });
+    expect(plan.systemPrompt).toContain("### CHARACTER IN SCENE: Saki Himekawa");
+    expect(plan.postHistory).toContain("write Saki Himekawa in Iqbal's language");
+    expect(plan.postHistory).not.toContain("Bitchy Goth girl slapped you!");
+  });
+
+  test("8. RPG and multi-character scenario presets resolve 'the cast' for guidance and populate ensemble roster", () => {
+    const multiCard = {
+      data: {
+        name: "Your Bully and Her Friends Move Into Your House",
+        personality: "# Name: Aoi\n Cold leader.\n# Name: Hina\n Teasing friend.\n# Name: Kuro\n Quiet observer.",
+      },
+    };
+    const id = resolveCardIdentity(multiCard);
+    expect(id.actorName).toBe("the cast");
+    expect(id.isMultiCharOrRpg).toBe(true);
+    expect(id.declaredCharacters).toEqual(["Aoi", "Hina", "Kuro"]);
+    expect(ensembleCast(multiCard).map((m: { name: string }) => m.name)).toEqual(["Aoi", "Hina", "Kuro"]);
+
+    const plan = BrowserChatEngine.planRequest({
+      card: multiCard,
+      session: { messages: [{ role: "user", content: "I open the door." }] },
+      persona: { name: "Iqbal" },
+      settings: {},
+    });
+    expect(plan.systemPrompt).toContain("### CAST IN SCENE (ensemble)");
+    expect(plan.systemPrompt).toContain("- Aoi");
+    expect(plan.systemPrompt).toContain("- Hina");
+    expect(plan.postHistory).toContain("write the cast in Iqbal's language");
+    expect(plan.postHistory).not.toContain("write Your Bully and Her Friends");
+
+    const rpgCard = {
+      data: {
+        name: "Dark Fantasy Isekai RPG Simulator",
+        description: "A vast sandbox world where {{char}} narrates guilds, monsters, and kingdoms for {{user}}.",
+      },
+    };
+    const rpgPlan = BrowserChatEngine.planRequest({
+      card: rpgCard,
+      session: { messages: [{ role: "user", content: "I check the guild board." }] },
+      persona: { name: "Iqbal" },
+      settings: {},
+    });
+    expect(rpgPlan.systemPrompt).toContain("the cast narrates guilds");
+    expect(rpgPlan.postHistory).toContain("write the cast in Iqbal's language");
+  });
 });
 
 describe("cross-turn n-gram echo detection for agglutinative prose", () => {
-  test("7. recurring 3-gram stock phrases across turns reach the slop cluster threshold", () => {
+  test("9. recurring 3-gram stock phrases across turns reach the slop cluster threshold", () => {
     const replies = [
       "Saki menatap tajam dengan mata menyipit sambil menggertakkan gigi di sudut ruangan.",
       "Dia mundur selangkah dengan mata menyipit lalu melipat kedua tangannya di dada.",
