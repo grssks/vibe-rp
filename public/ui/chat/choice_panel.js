@@ -92,11 +92,16 @@ export function createChoicePanel({
     class: "rp-btn rp-btn--ghost rp-btn--sm rp-choices__steer-toggle",
     text: "Steer…",
     title: "Guide choices toward an intended action",
+    attrs: {
+      "aria-expanded": "false",
+      "aria-controls": "choice-steer-bar",
+    },
   });
   actions.append(retryBtn, regenBtn, steerToggleBtn);
 
   const steerBar = el("div", {
     class: "rp-choices__steer-bar",
+    id: "choice-steer-bar",
     attrs: { hidden: "true" },
   });
   const steerInput = el("input", {
@@ -186,9 +191,14 @@ export function createChoicePanel({
   retryBtn.addEventListener("click", () => onRetry());
   regenBtn.addEventListener("click", () => onRegenerate());
 
+  function setSteerBarVisible(visible) {
+    steerBar.hidden = !visible;
+    steerToggleBtn.setAttribute("aria-expanded", visible ? "true" : "false");
+    if (visible) steerInput.focus();
+  }
+
   steerToggleBtn.addEventListener("click", () => {
-    steerBar.hidden = !steerBar.hidden;
-    if (!steerBar.hidden) steerInput.focus();
+    setSteerBarVisible(steerBar.hidden);
   });
 
   const submitSteer = () => {
@@ -199,7 +209,7 @@ export function createChoicePanel({
     // give it back; a menu that arrives clears it (see `render`).
     pendingSteer = val;
     steerInput.value = "";
-    steerBar.hidden = true;
+    setSteerBarVisible(false);
     onRegenerate(val);
   };
 
@@ -210,14 +220,15 @@ export function createChoicePanel({
       submitSteer();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      steerBar.hidden = true;
+      setSteerBarVisible(false);
+      steerToggleBtn.focus();
     }
   });
 
   steerCancelBtn.addEventListener("click", () => {
-    steerBar.hidden = true;
+    setSteerBarVisible(false);
+    steerToggleBtn.focus();
   });
-
   // Buttons are rebuilt per set, so selection is delegated to the list.
   list.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-choice-id]");
@@ -247,13 +258,18 @@ export function createChoicePanel({
   function buildChoice(choice, index, { disabled, selected }) {
     const btn = el("button", {
       type: "button",
-      class: "rp-choices__option",
+      class: "rp-choices__option rp-choice-card",
       attrs: { "data-choice-id": choice.id, "aria-disabled": disabled ? "true" : null },
     });
+    if (choice.text && choice.label && choice.text !== choice.label) {
+      btn.title = choice.text;
+    }
     // The number key is a quiet affordance, hidden from the accessible name so
     // the button reads as the action itself.
     const keyEl = el("span", { class: "rp-choices__key rp-tnum", attrs: { "aria-hidden": "true" }, text: CHOICE_LABELS[index] ?? "" });
+    keyEl.classList.add("rp-choice-card__key");
     const textEl = el("span", { class: "rp-choices__text", text: choice.text && choice.label ? choice.label : choice.text });
+    textEl.classList.add("rp-choice-card__text");
     btn.append(keyEl, textEl);
     let badgeText = "";
     const povLower = (choice.pov || "").toLowerCase();
@@ -358,7 +374,7 @@ export function createChoicePanel({
     regenBtn.disabled = !ready;
     steerToggleBtn.hidden = !steerable;
     steerToggleBtn.disabled = !steerable;
-    if (!steerable) steerBar.hidden = true;
+    if (!steerable) setSteerBarVisible(false);
 
     const arrived = ready && lastStatus !== "ready";
     const entering = submitting && lastStatus !== "submitting";

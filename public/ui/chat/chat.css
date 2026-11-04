@@ -566,6 +566,7 @@ mark.rp-search-hit.is-current {
   align-items: flex-start;
   gap: var(--space-3);
   width: 100%;
+  min-height: var(--tap-min);
   box-sizing: border-box;
   padding: var(--space-3) var(--space-3-5);
   text-align: left;
@@ -704,6 +705,7 @@ mark.rp-search-hit.is-current {
 
 .rp-choices__steer-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-2);
@@ -714,7 +716,7 @@ mark.rp-search-hit.is-current {
 }
 
 .rp-choices__steer-input {
-  flex: 1 1 auto;
+  flex: 1 1 200px;
   min-width: 0;
   height: 32px;
   font-size: var(--text-sm);
@@ -918,9 +920,9 @@ mark.rp-search-hit.is-current {
 /* Focus is stated on the option itself, since it is a real control.
    Inset outline ensures crisp borders without being clipped by the scroll container. */
 .rp-choices__option:focus-visible {
-  outline: var(--focus-width) solid var(--accent-annotation);
+  outline: var(--focus-width) solid var(--focus-ring);
   outline-offset: -1px;
-  border-color: var(--accent-annotation);
+  border-color: var(--focus-ring);
 }
 
 .rp-choices__collapse-btn:focus:not(:focus-visible) {

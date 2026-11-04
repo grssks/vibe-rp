@@ -166,9 +166,15 @@ describe("choice rendering handles dialogue quotes and accessibility safely", ()
     const buttons = mount.querySelectorAll(".rp-choices__option");
     expect(buttons.length).toBe(3);
 
-    // Button 1 displays label if present
+    // Button 1 displays label if present, provides full quoted action via title
     const text1 = buttons[0].querySelector(".rp-choices__text");
     expect(text1?.textContent).toBe("Speak up");
+    expect(buttons[0].title).toBe('Call out loudly: "Who\'s there? Show yourself!"');
+    expect(buttons[0].classList.contains("rp-choice-card")).toBe(true);
+    expect(text1?.classList.contains("rp-choice-card__text")).toBe(true);
+
+    // Button 2 preserves quoted dialogue in title
+    expect(buttons[1].title).toBe('“Don’t move,” she warned, “or you’ll trigger it.”');
 
     // Button 3 has no label, displays text safely without treating <shadows> as HTML
     const text3 = buttons[2].querySelector(".rp-choices__text");
@@ -179,7 +185,6 @@ describe("choice rendering handles dialogue quotes and accessibility safely", ()
     click(buttons[0]);
     expect(calls).toEqual(["select:c1"]);
   });
-
   test("numeric shortcut selects choice containing direct dialogue", () => {
     const { mount, panel, calls } = mountPanel();
     panel.render({
@@ -196,5 +201,27 @@ describe("choice rendering handles dialogue quotes and accessibility safely", ()
     document.dispatch("keydown", { key: "1" });
 
     expect(calls).toEqual(["select:c1"]);
+  });
+  test("steer toggle and bar maintain aria-expanded and restore focus on cancel", () => {
+    const { mount, panel } = mountPanel();
+    panel.render(READY);
+
+    const toggle = find(mount, ".rp-choices__steer-toggle");
+    const bar = find(mount, ".rp-choices__steer-bar");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-controls")).toBe("choice-steer-bar");
+    expect(bar.id).toBe("choice-steer-bar");
+
+    // Open steer bar
+    click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(bar.hidden).toBe(false);
+
+    // Cancel restores aria-expanded and focuses toggle
+    const cancelBtn = find(mount, ".rp-choices__steer-cancel");
+    click(cancelBtn);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(bar.hidden).toBe(true);
+    expect(toggle.focused).toBe(true);
   });
 });

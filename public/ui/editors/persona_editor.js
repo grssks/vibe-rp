@@ -81,6 +81,7 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     value: persona?.template || "",
     placeholder:
       "e.g. Bal is the reigning monarch of Florin. Speaks with measured, quiet authority.",
+    attrs: { "aria-describedby": "rp-persona-template-help" },
   });
 
   const error = el("p", { class: "rp-error", hidden: true });
@@ -88,17 +89,18 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
   const changeBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--secondary rp-btn--sm",
-    text: "Change photo",
+    text: avatarUrl(avatar) ? "Change photo" : "Upload photo",
   });
-
   function paintAvatar() {
     avatarBox.replaceChildren();
     const url = avatarUrl(avatar);
     if (url) {
       avatarBox.appendChild(el("img", { alt: "", src: url }));
+      changeBtn.textContent = "Change photo";
     } else {
       const letter = (nameInput.value.trim().charAt(0) || "U").toUpperCase();
       avatarBox.appendChild(el("span", { class: "rp-avatar__initials", text: letter }));
+      changeBtn.textContent = "Upload photo";
     }
     removeBtn.hidden = !url;
   }
@@ -146,6 +148,7 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     el("div", { class: "rp-field" }, [
       el("label", { class: "rp-label", for: "rp-persona-template", text: "Persona definition and instructions" }),
       el("p", {
+        id: "rp-persona-template-help",
         class: "rp-help",
         text: "Context and dialogue traits injected into the prompt prefix so the character knows who you are.",
       }),
