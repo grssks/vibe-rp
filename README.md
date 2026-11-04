@@ -105,10 +105,15 @@ Vibe RP cleanly separates three narrative layers so you can mix and match any pe
 | **Character Card** | Who `{{char}}` is (`description`, `personality`, `scenario`, `first_mes`, example dialogue, and lorebook). | **Library → Card Details** |
 | **User Persona** | Who `{{user}}` is in the story (name, observable presence, role, and narrative perspective). | **Settings → Personas** |
 
+**Character Placeholders & Dynamic Pronoun Macros**:
+- Substitutes standard character placeholders: `{{user}}`, `{{user_name}}`, `{{char}}`, and `{{char_name}}` across greetings, alternate greetings, and card definitions.
+- Expands JanitorAI and roleplay pronoun macros: `{{sub}}` (subject: he/she/they/it), `{{obj}}` (object: him/her/them/it), `{{poss}}` (possessive adjective: his/her/their/its), `{{possp}}` (possessive pronoun: his/hers/theirs/its), and `{{ref}}` (reflexive: himself/herself/themselves/itself).
+- Strict case preservation: Macro casing (`{{sub}}`, `{{Sub}}`, `{{SUB}}`) resolves with matching capitalization (`they`, `They`, `THEY`). Single-brace (`{obj}`) and angle-bracket (`<poss>`) variants are also supported.
+- Persona gender & pronoun configuration: Personas offer an explicit selector (`Male`, `Female`, `Neutral`, `Neuter`, or `Auto-detect`). When set to auto-detect, pronouns are inferred from the persona's description or template using multilingual markers across English, Japanese, Chinese, Spanish, Portuguese, French, German, Indonesian, and Russian.
+
 **Automatic Cross-Lingual & Preset Adaptation**:
 - If you import a character preset written in Indonesian, Japanese, Spanish, or any other language and use the built-in default directive and persona, the model automatically writes in the preset's scene language.
 - If you play an English character preset using a Persona, System Directive, or user turn written in another language (such as Indonesian), the engine detects the cross-lingual shift and instructs the model at both the system prefix and the generation tail to write `{{char}}`'s entire reply (narration and dialogue) in your active language. Once the assistant switches languages, the extra tail reminder automatically turns off to save tokens.
-
 ### 4. Writing, Editing, Forking & Search
 
 - **Live token estimates**: Both the message composer and every turn in the feed display live token estimates (`~bytes/4` with CJK script awareness).
@@ -129,11 +134,13 @@ Assistant reply completes
   → Standard roleplay pipeline streams the next reply
 ```
 
+- **Prompt Architecture & Physical Reality**: Choice generation evaluates the player's physical condition first (injury, consciousness, restraint, presence, and surroundings). It proposes player actions when physically able, or scene progression (passing time, sensory shifts, environmental developments) when restrained or incapacitated. Counterpart agency stays independent: outcomes, NPC responses, and consequences are left unwritten for the main roleplay pipeline to resolve. Observational perspective shifts (`type: "cutaway"`, `pov: "<name>"`) are supported when dramaturgically appropriate.
+- **Dramatic Divergence & Emotional Stakes**: Provides contrasting dramatic trajectories rooted in distinct human impulses: spoken dialogue with authentic voice (direct quoted speech in character), visceral instinct & impulse (gut reactions, adrenaline, physical commitments), guarded subtext & restraint (tactical stillness, poker faces, testing boundaries), vulnerability & personal stakes (admitting hard truths, emotional exposure), and lateral tactical shifts.
+- **Dialogue Preservation & Resilient Parsing**: Punctuation stripping uses balanced delimiter tracking (`isWrappedBy`) to strip only true outer enclosing quotes or brackets (including CJK lenticular/angle brackets `【】`, `〈〉`, `〔〕`, and low-9 quotes `„“`) while strictly preserving internal spoken dialogue quotes. The parser extracts valid choice menus from raw JSON, codeblocks, JSON with trailing commas or comments, newline-delimited JSON (NDJSON), and formatted markdown lists.
 - **Optional Steering**: Before generating or refreshing choices, you can type a brief direction into the steer field (e.g., *"ask about the locked drawer"* or *"refuse politely and leave"*) to focus the generated options.
 - **Zero transcript pollution**: Generated choice menus are never injected into the roleplay prompt. Selecting a choice submits its prose as an ordinary `user` turn, keeping the main RP prompt 100% cache-compatible.
 - **Lightweight auxiliary call**: Choice generation sends only a compact context slice (character/persona summary, clipped ledger hint, and recent turns) with a tight output budget (`768` tokens) and `reasoning_effort: "low"` so it returns quickly and cheaply even on 10K-token cards.
 - **Persisted across reloads**: Active choices are saved with the session in `IndexedDB` and restored without re-fetching when you reopen the chat.
-
 ### 6. The Context Sheet
 
 Click the **Context** button in the chat header to inspect the exact structure and token cost of your session:
@@ -307,7 +314,7 @@ public/
 tools/
   prompt_eval.mjs       Deterministic prompt architecture & token budget gate (bun run eval)
   story_eval.mjs        Longitudinal story-development evaluation script
-test/                   Bun test suite (38 test files, 858 tests)
+test/                   Bun test suite (38 test files, 877 tests)
 serve.js                Bun static server with SPA routing and security headers
 vercel.json             Static deployment routing and mirrored security headers
 AGENTS.md               Repository architecture and engineering rules
@@ -320,7 +327,7 @@ AGENTS.md               Repository architecture and engineering rules
 Run the test suite and prompt evaluator with Bun:
 
 ```bash
-bun test test/    # 858 tests across 38 files
+bun test test/    # 877 tests across 38 files
 bun run eval      # verifies prompt token budgets, single-definition rules, and framing
 ```
 

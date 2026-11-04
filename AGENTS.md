@@ -15,7 +15,7 @@ of them:
 | --- | --- | --- |
 | Craft contract (`agentsContract`) | Craft, continuity, the authority rule, and how identity behaves (`{{char}}`'s core holds) | What the reader *is*; the card's own character details |
 | Card (`system_prompt`, `description`, `personality`, `scenario`) | Who `{{char}}` is | Style or continuity rules |
-| Persona (`persona.description` / `template`) | The reader's role and narrative perspective | Agency, perception, or observability rules — those are the contract's, stated once for every character |
+| Persona (`persona.description`, `persona.gender`, `persona.template`) | The reader's role, narrative perspective, and explicit or inferred gender/pronouns (`substitutePlaceholders`, `resolvePronouns`) | Agency, perception, or observability rules — those are the contract's, stated once for every character |
 
 `tools/prompt_eval.mjs` gates this: `CONTRACT_SINGLE_DEFINITION` asserts the
 authority rule is in the contract and the reader's identity is not.
@@ -59,20 +59,20 @@ The dependency direction is one-way: UI modules depend on controllers, controlle
 
 Top-level logic (all zero DOM unless noted):
 
-- **`public/browser_engine.js`** (3023 lines): `BrowserChatEngine`. Prompt assembly, the four context rules, ledger folding, SSE streaming, the universal allocator, and auxiliary choice generation. Re-exports the pure planning helpers from `context_plan.js` and the session-write accessors from `session_state.js` so callers keep one import surface.
-- **`public/context_plan.js`** (272 lines): pure planning. Token estimation, `cleanPromptText`, the summary budgets, and `allocateContext` — the one allocator. Owns the ledger-framing cost (`LEDGER_OPEN`/`LEDGER_CLOSE`, `ledgerFramingTokens()`) so every charge site reads one value, and the fence neutraliser (`neutralizeFence`, `frameLedger`) so no block can be closed by its own content. `browser_engine.js` re-exports `allocateContext` as a thin wrapper, so the engine's own calls and a page's calls go through the same decision.
-- **`public/session_state.js`** (112 lines): the session-write seam (`applyFold`, `resetLedger`, `captureLedgerState`, `restoreLedgerState`, `noteUsage`, `noteUsageReport`, `markLedgerTruncated`, `setOverflowReported`, `setCondensedReported`). The engine decides *when*; this module owns *how* the controller's session is mutated, so the fold returns a value and one place applies it. `resetLedger` handles explicit ledger clears (user transcript edits); the capture/restore pair makes a deletion undoable.
-- **`public/usage_history.js`** (263 lines): the per-chat usage history — the sample shape, the scope key that decides what is comparable, the per-scope caps, and the trend derivation. A leaf module: it imports nothing, reads no store and holds no clock. `session_controller.js` writes the samples; `ui/chat/context_panel.js` renders the trend.
-- **`public/session_controller.js`** (900 lines): `SessionController`. Session lifecycle, modal state machine, message transitions, send/stream flow, retry of an unanswered turn, the Choice Mode state machine, and the one place a usage sample is recorded. Accepts `options.signal` and exposes `cancel()`.
-- **`public/local_db.js`** (861 lines): `LocalDb` plus its two backends. `IdbStore` owns IndexedDB (cards, sessions); `LocalStore` owns localStorage (personas, directives, settings). `LocalDb` is a facade: an instance drives its own stores and accepts injected ones, while the statics delegate to a default instance. `DB_VERSION` is 2. `KEY_PREFIX` is the one namespace boundary the export, import and clear paths all read.
-- **`public/text.js`** (227 lines): the cycle-free leaf every other pure module may import. `utf8Decoder`, `substitutePlaceholders`, `stripThoughtBlocks`, `renderInlineField`, `neutralizeDelimiters`, `REFUSAL_RE`, and `looksLikeModelRefusal`.
+- **`public/browser_engine.js`** (2818 lines): `BrowserChatEngine`. Prompt assembly, the four context rules, ledger folding, SSE streaming, the universal allocator, and auxiliary choice generation. Re-exports the pure planning helpers from `context_plan.js` and the session-write accessors from `session_state.js` so callers keep one import surface.
+- **`public/context_plan.js`** (306 lines): pure planning. Token estimation, `cleanPromptText`, the summary budgets, and `allocateContext` — the one allocator. Owns the ledger-framing cost (`LEDGER_OPEN`/`LEDGER_CLOSE`, `ledgerFramingTokens()`) so every charge site reads one value, and the fence neutraliser (`neutralizeFence`, `frameLedger`) so no block can be closed by its own content. `browser_engine.js` re-exports `allocateContext` as a thin wrapper, so the engine's own calls and a page's calls go through the same decision.
+- **`public/session_state.js`** (149 lines): the session-write seam (`applyFold`, `resetLedger`, `captureLedgerState`, `restoreLedgerState`, `noteUsage`, `noteUsageReport`, `markLedgerTruncated`, `setOverflowReported`, `setCondensedReported`). The engine decides *when*; this module owns *how* the controller's session is mutated, so the fold returns a value and one place applies it. `resetLedger` handles explicit ledger clears (user transcript edits); the capture/restore pair makes a deletion undoable.
+- **`public/usage_history.js`** (288 lines): the per-chat usage history — the sample shape, the scope key that decides what is comparable, the per-scope caps, and the trend derivation. A leaf module: it imports nothing, reads no store and holds no clock. `session_controller.js` writes the samples; `ui/chat/context_panel.js` renders the trend.
+- **`public/session_controller.js`** (868 lines): `SessionController`. Session lifecycle, modal state machine, message transitions, send/stream flow, retry of an unanswered turn, the Choice Mode state machine, and the one place a usage sample is recorded. Accepts `options.signal` and exposes `cancel()`.
+- **`public/local_db.js`** (970 lines): `LocalDb` plus its two backends. `IdbStore` owns IndexedDB (cards, sessions); `LocalStore` owns localStorage (personas, directives, settings). `LocalDb` is a facade: an instance drives its own stores and accepts injected ones, while the statics delegate to a default instance. `DB_VERSION` is 2. `KEY_PREFIX` is the one namespace boundary the export, import and clear paths all read.
+- **`public/text.js`** (335 lines): the cycle-free leaf every other pure module may import. `utf8Decoder`, `substitutePlaceholders`, `resolvePronouns` (supports JanitorAI/CBS pronoun macros `{{sub}}`, `{{obj}}`, `{{poss}}`, `{{possp}}`, `{{ref}}`, case preservation, explicit persona gender, and multilingual pronoun extraction), `stripThoughtBlocks`, `renderInlineField`, `neutralizeDelimiters`, `REFUSAL_RE`, and `looksLikeModelRefusal`.
 - **`public/safe_html.js`** (37 lines): `escapeHtml` and `escapeAttr`. The single escaping point for the whole app.
 - **`public/message_format.js`** (162 lines): pure `formatProse` and `formatMessages` view models. `formatProse` is the one the app uses; `formatMessages` is consumed only by tests.
-- **`public/choice_format.js`** (368 lines): the Choice Mode prompt and the resilient parser for untrusted model output (zero DOM).
+- **`public/choice_format.js`** (453 lines): Choice Mode system prompt (`CHOICE_SYSTEM_PROMPT`: physical reality, scene progression, independent counterpart agency, dramatic divergence, emotional stakes, spoken dialogue), `choicePrompt`, `isWrappedBy` (dialogue quote preservation across Unicode quotes/brackets), and resilient parser for untrusted model output (JSON, trailing commas, NDJSON, markdown lists) (zero DOM).
 - **`public/card_parse.js`** (348 lines): character-card parsing (JSONC strip, normalize, PNG/WebP `chara` extraction).
 - **`public/remote_import.js`** (265 lines): URL import, character-page API mapping, direct card-file fetch.
-- **`public/session_refresh.js`** (366 lines): refresh-token exchange, single-flight, proactive refresh. Owns the allowlisted auth destination.
-- **`public/sw.js`** (549 lines): offline shell cache. Never caches cross-origin or non-GET requests, and replays the origin's own policy headers.
+- **`public/session_refresh.js`** (367 lines): refresh-token exchange, single-flight, proactive refresh. Owns the allowlisted auth destination.
+- **`public/sw.js`** (544 lines): offline shell cache. Never caches cross-origin or non-GET requests, and replays the origin's own policy headers.
 
 Page shells (markup plus a thin bootstrap only):
 
@@ -293,12 +293,12 @@ bun test test/
 
 ### Stats
 
-829 tests, 11850 expect() calls, 37 files (measured with `bun test`).
+877 tests, 12009 expect() calls, 38 files (measured with `bun test`).
 
 ### Existing Test Files
 
 - `test/card_parse.test.ts`: HTML-to-markup converter (entity decoding, attribute stripping, idempotence)
-- `test/choice_format.test.ts`: the Choice Mode parser (malformed/aliased/line-list output, sanitation, dedupe, clamping) and the auxiliary choice request planner
+- `test/choice_format.test.ts`: the Choice Mode prompt contract, quote preservation, resilient parser (malformed/aliased/trailing-comma JSON, NDJSON, markdown list items), and auxiliary choice request planner
 - `test/choice_mode.test.ts`: the choice state machine (double-click, staleness, scene-awaiting-player guard, failure recovery, persistence without a refetch)
 - `test/choice_panel_behavior.test.ts`: the steer control driven for real against `test/dom_shim.ts` — a consumed intent is cleared, a failed menu hands it back, a draft survives, and the control stays reachable on an error. Behavioural, because the defect it covers (the field was read on submit and never cleared, so the panel handed the same text back on the next open) was invisible to a source-text guard
 - `test/choice_ui.test.ts`: presentation guards (real buttons, text-not-markup, durable retry affordance, the engine choice seam stays non-streaming and transcript-free)
@@ -312,10 +312,11 @@ bun test test/
 - `test/data_management.test.ts`: export/import lifecycle, persona/directive data operations, the uniform destructive-confirm invariant, and the storage namespace boundary (a crafted backup cannot write a key outside the app's prefix, and an export round-trips through an import)
 - `test/detail_modal_close.test.ts`: detail modal close behavior and cleanup
 - `test/engine_interface.test.ts`: engine interface contract
+- `test/grill_hardening.test.ts`: regression hardening (model capability fallback, token budgeting, prompt integrity)
 - `test/library_card_actions.test.ts`: library card interactions and action dispatch
 - `test/local_db_hardening.test.ts`: v1 to v2 upgrade, transactional delete, typed errors
 - `test/local_db_seam.test.ts`: the LocalDb instance seam (injected IDB/local backends, default-instance delegation)
-- `test/message_format.test.ts`: formatting
+- `test/message_format.test.ts`: pure prose formatting and card placeholder / JanitorAI pronoun macro expansion
 - `test/modal_dismissal.test.ts`: backdrop and keyboard dismissal contracts
 - `test/no_inline_scripts.test.ts`: the CSP script policy (no inline `<script>`, no `sha256-` source, `serve.js` and `vercel.json` byte-identical, `script-src` carrying neither `unsafe-inline` nor `unsafe-eval`, the closing directives present in both) plus the service-worker cache contract (the carried-header list, header capture and replay, a whole-content generation digest, and an unknown path not answered from the shell)
 - `test/presets_resolution.test.ts`: settings resolution
@@ -357,9 +358,9 @@ generations and `--compare <json>` diffs two runs. Run it after any prompt chang
   accident rather than by design. State it once, in the layer that owns it.
 - **Update the eval patterns in the same change as any rewording.** They match
   literal prompt text, so a reworded prompt with stale patterns makes the gate
-  silently stop checking. Patterns must also be placeholder-free — `{{user}}` and
-  `{{char}}` are substituted before the payload exists, so a pattern containing
-  one can never match.
+  silently stop checking. Patterns must also be placeholder-free — `{{user}}`,
+  `{{char}}`, and pronoun macros (`{{sub}}`, `{{obj}}`, `{{poss}}`, etc.) are
+  substituted before the payload exists, so a pattern containing one can never match.
 - **State instructions positively.** Prohibitions are a minority of any prompt
   here; the contract carries zero. Negative constraints still exist, but they
   cluster in the compaction prompts where they are doing extraction work.
@@ -382,9 +383,9 @@ generations and `--compare <json>` diffs two runs. Run it after any prompt chang
 
 Re-derive rather than quoting these; `bun run eval` prints them.
 
-- The stable prefix carries ~78.6% instruction share across the scenario set
+- The stable prefix carries ~81.3% instruction share across the scenario set
   (system prompt + adaptive guidance vs input tokens).
-- The craft contract is ~1116 tokens (measured via estimateTokens in eval).
+- The craft contract is ~1205 tokens (measured via estimateTokens in eval).
 - The craft contract uses a universal approach with zero per-language prompt
   templates across all scenarios: it inherently directs the model to adapt to any
   language, dialect, and register without separate per-language templates.
