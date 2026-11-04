@@ -62,6 +62,17 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     value: persona?.description || "",
     placeholder: "e.g. Ruler defending the realm",
   });
+  const genderSelect = el("select", {
+    id: "rp-persona-gender",
+    class: "rp-select",
+  }, [
+    el("option", { value: "", text: "Auto-detect from description" }),
+    el("option", { value: "male", text: "Male (he / him / his)" }),
+    el("option", { value: "female", text: "Female (she / her / hers)" }),
+    el("option", { value: "neutral", text: "Neutral (they / them / theirs)" }),
+    el("option", { value: "it", text: "Neuter (it / its)" }),
+  ]);
+  genderSelect.value = persona?.gender || "";
 
   const templateInput = el("textarea", {
     id: "rp-persona-template",
@@ -126,6 +137,10 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
           el("label", { class: "rp-label", for: "rp-persona-desc", text: "Role or brief description" }),
           descInput,
         ]),
+        el("div", { class: "rp-field" }, [
+          el("label", { class: "rp-label", for: "rp-persona-gender", text: "Gender & pronouns" }),
+          genderSelect,
+        ]),
       ]),
     ]),
     el("div", { class: "rp-field" }, [
@@ -153,6 +168,7 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
       id: persona?.id || `persona_${Date.now()}`,
       name,
       description: descInput.value.trim(),
+      gender: genderSelect.value || undefined,
       template: templateInput.value,
       avatar: avatar || undefined,
     }),

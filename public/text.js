@@ -24,14 +24,31 @@ export const utf8Decoder = new TextDecoder();
  * replacement available are left as literal text rather than deleted.
  */
 export function resolvePronouns(persona) {
+  const gender = persona?.gender ? String(persona.gender).trim().toLowerCase() : "";
+  if (gender === "male" || gender === "he" || gender === "m") {
+    return { sub: "he", obj: "him", poss: "his", possp: "his", ref: "himself" };
+  }
+  if (gender === "female" || gender === "she" || gender === "f") {
+    return { sub: "she", obj: "her", poss: "her", possp: "hers", ref: "herself" };
+  }
+  if (gender === "it" || gender === "neuter") {
+    return { sub: "it", obj: "it", poss: "its", possp: "its", ref: "itself" };
+  }
+  if (gender === "neutral" || gender === "they" || gender === "nb" || gender === "nonbinary") {
+    return { sub: "they", obj: "them", poss: "their", possp: "theirs", ref: "themselves" };
+  }
+
   const text = typeof persona === "string"
     ? persona
     : [persona?.pronouns, persona?.description, persona?.template].filter(Boolean).join(" ");
   const p = text.toLowerCase();
 
-  const hasHe = /\b(he\/him|he\/his|\bhe\b|\bhim\b|\bhis\b|\bhimself\b|\bmale\b|\bboy\b|\bman\b)\b/.test(p);
-  const hasShe = /\b(she\/her|\bshe\b|\bher\b|\bhers\b|\bherself\b|\bfemale\b|\bgirl\b|\bwoman\b)\b/.test(p);
-  const hasIt = /\b(it\/its|\bit\b|\bits\b|\bitself\b)\b/.test(p);
+  // Multilingual markers: English, Japanese (彼/彼女/男性/女性), Chinese (他/她/男/女),
+  // Spanish/Portuguese (él/ella/ele/ela/masculino/femenino), French (il/elle/homme/femme), German (er/sie/mann/frau),
+  // Indonesian (pria/laki/wanita/perempuan), Russian (он/она/мужчина/женщина)
+  const hasHe = /\b(he\/him|he\/his|\bhe\b|\bhim\b|\bhis\b|\bhimself\b|\bmale\b|\bboy\b|\bman\b|masculin|masculino|homme|él|ele|il|er|ihn|ihm|sein|mann|pria|laki|он|его|ему)\b|[他彼]|男性|男\b/.test(p);
+  const hasShe = /\b(she\/her|\bshe\b|\bher\b|\bhers\b|\bherself\b|\bfemale\b|\bgirl\b|\bwoman\b|féminin|femme|femenino|feminino|ella|ela|elle|sie|ihr|frau|wanita|perempuan|она|её|ей)\b|[她]|彼女|女性|女\b/.test(p);
+  const hasIt = /\b(it\/its|\bit\b|\bits\b|\bitself\b|es|isso)\b|[它牠]/.test(p);
 
   if (hasHe && !hasShe) {
     return { sub: "he", obj: "him", poss: "his", possp: "his", ref: "himself" };

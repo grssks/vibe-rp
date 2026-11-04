@@ -318,13 +318,25 @@ describe("substitutePlaceholders", () => {
       .toBe("Hit him on his head");
   });
 
-  test("resolvePronouns handles edge cases and explicitly checks pronouns/gender", () => {
+  test("resolvePronouns handles edge cases, explicit gender selector, and multilingual cues", () => {
     expect(resolvePronouns("").sub).toBe("they");
+    expect(resolvePronouns({ gender: "male" }).sub).toBe("he");
+    expect(resolvePronouns({ gender: "female" }).sub).toBe("she");
+    expect(resolvePronouns({ gender: "neutral" }).sub).toBe("they");
+    expect(resolvePronouns({ gender: "it" }).sub).toBe("it");
     expect(resolvePronouns({ pronouns: "he/him" }).sub).toBe("he");
     expect(resolvePronouns({ pronouns: "she/her" }).sub).toBe("she");
     expect(resolvePronouns({ pronouns: "it/its" }).sub).toBe("it");
     expect(resolvePronouns({ description: "robot with it/its pronouns" }).sub).toBe("it");
     expect(resolvePronouns({ template: "Nonbinary traveler" }).sub).toBe("they");
+
+    // Multilingual description detection
+    expect(resolvePronouns({ description: "彼は高校生です。" }).sub).toBe("he");
+    expect(resolvePronouns({ description: "她是大学生" }).sub).toBe("she");
+    expect(resolvePronouns({ description: "Un estudiante masculino" }).sub).toBe("he");
+    expect(resolvePronouns({ description: "Une femme mystérieuse" }).sub).toBe("she");
+    expect(resolvePronouns({ description: "Seorang pria biasa" }).sub).toBe("he");
+    expect(resolvePronouns({ description: "Perempuan pendiam" }).sub).toBe("she");
   });
 
   test("formatMessages resolves placeholders in rendered prose", () => {
