@@ -127,14 +127,8 @@ async function confirmDeleteThing(kind, label) {
   });
 }
 
-function openDetail(card) {
-  const personas = LocalDb.getAllPersonas();
-  const personaId = card?.data?.userPersonaId || card?.userPersonaId;
-  const persona =
-    personas.find((p) => p.id === personaId) ||
-    personas.find((p) => p.isDefault) ||
-    personas[0] ||
-    null;
+async function openDetail(card) {
+  const persona = await LocalDb.resolvePersonaForCard(card);
   openDetailModal({
     card,
     persona,
