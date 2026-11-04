@@ -570,6 +570,87 @@ describe("LocalDb storage management, export and import", () => {
     expect(fakeStorage["vibe_rp_import_session"]).toContain("accessToken");
     expect(fakeStorage["vibe_rp_bad_value"]).toBeUndefined();
   });
+  test("restoring vibe_rp_settings validates apiEndpoint scheme and field types", async () => {
+    const payloadInvalidEndpoint = {
+      format: "vibe-rp-full-backup",
+      version: 1,
+      data: {
+        indexedDb: { cards: [], sessions: [] },
+        localStorage: {
+          vibe_rp_settings: JSON.stringify({ apiEndpoint: "javascript:alert(1)" }),
+        },
+        cookies: [],
+      },
+    };
+
+    const res1 = await LocalDb.importAllData(payloadInvalidEndpoint, { mode: "merge" });
+    expect(res1.localStorageKeysImported).toBe(0);
+    expect(fakeStorage["vibe_rp_settings"]).toBeUndefined();
+
+    const payloadInvalidType = {
+      format: "vibe-rp-full-backup",
+      version: 1,
+      data: {
+        indexedDb: { cards: [], sessions: [] },
+        localStorage: {
+          vibe_rp_settings: JSON.stringify({ temperature: "not-a-number" }),
+        },
+        cookies: [],
+      },
+    };
+
+    const res2 = await LocalDb.importAllData(payloadInvalidType, { mode: "merge" });
+    expect(res2.localStorageKeysImported).toBe(0);
+    expect(fakeStorage["vibe_rp_settings"]).toBeUndefined();
+
+    const payloadValid = {
+      format: "vibe-rp-full-backup",
+      version: 1,
+      data: {
+        indexedDb: { cards: [], sessions: [] },
+        localStorage: {
+          vibe_rp_settings: JSON.stringify({
+            apiEndpoint: "https://api.example.com/v1",
+            temperature: 0.8,
+            model: "gpt-4o",
+          }),
+        },
+        cookies: [],
+      },
+    };
+
+    const res3 = await LocalDb.importAllData(payloadValid, { mode: "merge" });
+    expect(res3.localStorageKeysImported).toBe(1);
+    expect(fakeStorage["vibe_rp_settings"]).toBeDefined();
+  });
+
+  test("importAllData throws LocalDbQuotaError when localStorage or sessionStorage exceeds quota", async () => {
+    const originalSetItem = globalThis.localStorage.setItem;
+    try {
+      globalThis.localStorage.setItem = () => {
+        const err = new Error("Quota exceeded");
+        err.name = "QuotaExceededError";
+        throw err;
+      };
+
+      const payload = {
+        format: "vibe-rp-full-backup",
+        version: 1,
+        data: {
+          indexedDb: { cards: [], sessions: [] },
+          localStorage: {
+            vibe_rp_settings: JSON.stringify({ model: "test" }),
+          },
+          cookies: [],
+        },
+      };
+
+      await expect(LocalDb.importAllData(payload, { mode: "merge" })).rejects.toThrow();
+    } finally {
+      globalThis.localStorage.setItem = originalSetItem;
+    }
+  });
+
 
   test("an imported backup cannot write a sessionStorage key outside the app's namespace", async () => {
     // The sessionStorage half of importAllData had no prefix filter while the

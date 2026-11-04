@@ -139,6 +139,57 @@ export class LocalDbBlockedError extends Error {
     this.code = "BLOCKED";
   }
 }
+function isStorageQuotaError(err) {
+  if (!err) return false;
+  return (
+    err.name === "QuotaExceededError" ||
+    err.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    err.code === 22 ||
+    err.code === 1014 ||
+    err.number === -2147024882
+  );
+}
+
+function safeSetLocalStorage(key, val) {
+  try {
+    localStorage.setItem(key, val);
+  } catch (err) {
+    if (isStorageQuotaError(err)) {
+      throw new LocalDbQuotaError("localStorage quota exceeded", err);
+    }
+    throw err;
+  }
+}
+
+function isValidSettingsObject(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return false;
+  if (obj.apiEndpoint !== undefined && obj.apiEndpoint !== null && obj.apiEndpoint !== "") {
+    if (typeof obj.apiEndpoint !== "string") return false;
+    try {
+      const url = new URL(obj.apiEndpoint);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    } catch (_) {
+      return false;
+    }
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (k in DEFAULT_SETTINGS) {
+      const defaultVal = DEFAULT_SETTINGS[k];
+      if (defaultVal === null || defaultVal === undefined) continue;
+      if (Array.isArray(defaultVal)) {
+        if (!Array.isArray(v)) return false;
+      } else if (typeof defaultVal === "number") {
+        if (typeof v !== "number" || !Number.isFinite(v)) return false;
+      } else if (typeof defaultVal === "string") {
+        if (typeof v !== "string") return false;
+      } else if (typeof defaultVal === "boolean") {
+        if (typeof v !== "boolean") return false;
+      }
+    }
+  }
+  return true;
+}
+
 
 // Generic presets store (personas and directives; sync via localStorage).
 // The card→preset resolution rule (card root, then card.data, then default)
@@ -460,13 +511,13 @@ class LocalStore {
                 }
               }
             }
-            if (synced) localStorage.setItem(key, JSON.stringify(list));
+            if (synced) safeSetLocalStorage(key, JSON.stringify(list));
             return list;
           }
         }
       } catch (_) {}
       const fresh = seed();
-      localStorage.setItem(key, JSON.stringify(fresh));
+      safeSetLocalStorage(key, JSON.stringify(fresh));
       return fresh;
     };
     const store = {
@@ -485,16 +536,16 @@ class LocalStore {
         const idx = items.findIndex((p) => p.id === preset.id);
         if (idx >= 0) items[idx] = preset;
         else items.push(preset);
-        localStorage.setItem(key, JSON.stringify(items));
+        safeSetLocalStorage(key, JSON.stringify(items));
         return preset;
       },
       async remove(id) {
-        localStorage.setItem(key, JSON.stringify(read().filter((p) => p.id !== id)));
+        safeSetLocalStorage(key, JSON.stringify(read().filter((p) => p.id !== id)));
       },
       async setDefault(id) {
         const items = read();
         for (const p of items) p.isDefault = p.id === id;
-        localStorage.setItem(key, JSON.stringify(items));
+        safeSetLocalStorage(key, JSON.stringify(items));
       },
       async getDefault() {
         const items = read();
@@ -524,7 +575,7 @@ class LocalStore {
   }
 
   saveSettings(settings) {
-    localStorage.setItem("vibe_rp_settings", JSON.stringify(settings));
+    safeSetLocalStorage("vibe_rp_settings", JSON.stringify(settings));
   }
 
   resetSettings() {
@@ -542,7 +593,7 @@ class LocalStore {
   /** Re-seeds a preset store from its default factory (or its built-in set). */
   resetPresets({ key, defaultFactory, builtins }) {
     const fresh = builtins ? builtins() : [defaultFactory()];
-    localStorage.setItem(key, JSON.stringify(fresh));
+    safeSetLocalStorage(key, JSON.stringify(fresh));
     return fresh;
   }
 
@@ -592,10 +643,27 @@ class LocalStore {
         for (const [k, v] of Object.entries(map)) {
           if (typeof k !== "string" || !k.startsWith(KEY_PREFIX)) continue;
           if (typeof v !== "string") continue;
-          localStorage.setItem(k, v);
-          count++;
+          if (k === "vibe_rp_settings") {
+            try {
+              const parsed = JSON.parse(v);
+              if (!isValidSettingsObject(parsed)) continue;
+            } catch (_) {
+              continue;
+            }
+          }
+          try {
+            localStorage.setItem(k, v);
+            count++;
+          } catch (err) {
+            if (isStorageQuotaError(err)) {
+              throw new LocalDbQuotaError("localStorage quota exceeded during restore", err);
+            }
+            throw err;
+          }
         }
-      } catch (_) {}
+      } catch (err) {
+        if (err instanceof LocalDbQuotaError) throw err;
+      }
     }
     return count;
   }
@@ -811,9 +879,18 @@ export class LocalDb {
           // untrusted input, so only this app's own prefix may land.
           if (typeof k !== "string" || !k.startsWith(KEY_PREFIX)) continue;
           if (typeof v !== "string") continue;
-          sessionStorage.setItem(k, v);
+          try {
+            sessionStorage.setItem(k, v);
+          } catch (err) {
+            if (isStorageQuotaError(err)) {
+              throw new LocalDbQuotaError("sessionStorage quota exceeded during import", err);
+            }
+            throw err;
+          }
         }
-      } catch (_) {}
+      } catch (err) {
+        if (err instanceof LocalDbQuotaError) throw err;
+      }
     }
 
     return {

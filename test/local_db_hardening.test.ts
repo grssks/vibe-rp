@@ -110,4 +110,32 @@ describe("Defect 7 - blocked and quota failures surface as typed errors", () => 
     await LocalDb.deleteSession("s1");
     expect(await LocalDb.getSessionsForCard("c1")).toEqual([]);
   });
+  test("localStorage quota failures throw LocalDbQuotaError on presets and settings operations", async () => {
+    const prev = globalThis.localStorage;
+    const fakeStorage: Record<string, string> = {};
+    const quotaMockStorage: Storage = {
+      getItem: (k: string) => fakeStorage[k] ?? null,
+      setItem: () => {
+        const err = new Error("quota exceeded");
+        err.name = "QuotaExceededError";
+        throw err;
+      },
+      removeItem: (k: string) => { delete fakeStorage[k]; },
+      clear: () => { for (const k in fakeStorage) delete fakeStorage[k]; },
+      key: (i: number) => Object.keys(fakeStorage)[i] || null,
+      get length() { return Object.keys(fakeStorage).length; },
+    };
+    Object.defineProperty(globalThis, "localStorage", { value: quotaMockStorage, configurable: true, writable: true });
+
+    try {
+      await expect(LocalDb.savePersona({ name: "P1" })).rejects.toBeInstanceOf(LocalDbQuotaError);
+      await expect(LocalDb.deletePersona("p1")).rejects.toBeInstanceOf(LocalDbQuotaError);
+      await expect(LocalDb.setDefaultPersona("p1")).rejects.toBeInstanceOf(LocalDbQuotaError);
+      expect(() => LocalDb.saveSettings({ model: "test" })).toThrow(LocalDbQuotaError);
+      expect(() => LocalDb.resetPersonas()).toThrow(LocalDbQuotaError);
+    } finally {
+      globalThis.localStorage = prev;
+    }
+  });
+
 });

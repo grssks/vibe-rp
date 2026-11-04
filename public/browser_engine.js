@@ -616,10 +616,7 @@ export function buildSystemSections(card, persona, settings = {}) {
     sections.push({
       id: "cardReading",
       text:
-        "[Card Reading: a preset's dialogue examples demonstrate the character's personality, not the language of " +
-        "the scene or its canon. Match the language of the preset's scene by default, or adapt the entire reply " +
-        "(narration and dialogue) into the reader's language whenever the reader's turns, User Persona, or custom " +
-        "Directives use another language.]",
+        "[Card Reading: a preset's dialogue examples demonstrate the character's personality, not the language of the scene or its canon.]",
       required: true,
       priority: 960,
     });

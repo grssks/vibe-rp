@@ -849,7 +849,11 @@ export class SessionController {
     // list is kept (not cleared) so the UI can render it disabled with the
     // selected line acknowledged, rather than the menu vanishing on click.
     this.choiceState = { ...st, status: CHOICE_STATUS.SUBMITTING, selectedId: choice.id, error: null };
-    if (this.activeSession) this.activeSession.choiceSet = null;
+    if (this.activeSession) {
+      const targetSession = this.activeSession;
+      targetSession.choiceSet = null;
+      this.db?.saveSession?.(targetSession);
+    }
     return { id: choice.id, text: choice.text };
   }
 

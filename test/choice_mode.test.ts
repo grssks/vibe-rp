@@ -464,4 +464,22 @@ describe("Choice Mode - agency and continuation type preservation", () => {
     const pick = ctl.selectChoice("c1");
     expect(pick.text).toBe("Time passes as footsteps fade down the corridor.");
   });
+
+  test("selectChoice persists targetSession.choiceSet = null to storage", async () => {
+    const { ctl, db } = await makeController();
+    await ctl.send("Hello.");
+    await ctl.requestChoices();
+    expect(ctl.activeSession.choiceSet).not.toBeNull();
+    type SessionRecord = { id: string; choiceSet?: unknown };
+    type DatabaseWithSessions = { getSessionsForCard(cardId: string): Promise<SessionRecord[]> };
+    const sessionStore = db as DatabaseWithSessions;
+
+    let sessions = await sessionStore.getSessionsForCard("card_1");
+    expect(sessions.find((s) => s.id === ctl.activeSession.id)?.choiceSet).not.toBeNull();
+
+    ctl.selectChoice(ctl.choiceState.choices[0].id);
+    expect(ctl.activeSession.choiceSet).toBeNull();
+    sessions = await sessionStore.getSessionsForCard("card_1");
+    expect(sessions.find((s) => s.id === ctl.activeSession.id)?.choiceSet).toBeNull();
+  });
 });
