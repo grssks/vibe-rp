@@ -41,6 +41,7 @@ const LEDGER_FRAMING_TOKENS = ledgerFramingTokens();
 export const CHOICE_LEDGER_TOKENS = 700;
 export const CHOICE_RECENT_TOKENS = 2200;
 export const CHOICE_MAX_OUTPUT_TOKENS = 768;
+export const CHOICE_REASONING_MAX_OUTPUT_TOKENS = 3072;
 
 /** First field carrying author-written string text, or "". */
 export function firstText(...values) {
@@ -851,10 +852,15 @@ export function planChoiceRequest({
   const choiceRatio = sessionTokenRatio(choiceSettings, session);
   const choiceScale = choiceRatio > 1.02 ? choiceRatio : 1;
   const margin = resolveSafetyMargin(baseWindow);
-  const desiredOutput = Math.max(
-    MIN_OUTPUT_TOKENS,
-    Math.min(CHOICE_MAX_OUTPUT_TOKENS, typeof choiceSettings?.maxTokens === "number" ? choiceSettings.maxTokens : CHOICE_MAX_OUTPUT_TOKENS)
-  );
+  const choiceCap = getModelCapability(settings?.apiEndpoint, choiceModel);
+  const isReasoningChoice = Boolean(choiceCap.observedReasoning);
+  const maxChoiceOutput = isReasoningChoice ? CHOICE_REASONING_MAX_OUTPUT_TOKENS : CHOICE_MAX_OUTPUT_TOKENS;
+  const desiredOutput = isReasoningChoice
+    ? Math.max(MIN_OUTPUT_TOKENS, maxChoiceOutput)
+    : Math.max(
+        MIN_OUTPUT_TOKENS,
+        Math.min(CHOICE_MAX_OUTPUT_TOKENS, typeof choiceSettings?.maxTokens === "number" ? choiceSettings.maxTokens : CHOICE_MAX_OUTPUT_TOKENS)
+      );
 
   const stripTrailingGuidance = (payload) => {
     if (!Array.isArray(payload) || payload.length === 0) return payload || [];
@@ -885,9 +891,10 @@ export function planChoiceRequest({
       const fullPayload = [...stripTrailingGuidance(fullMain.payload), { role: "user", content: taskContent }];
       const fullInput = countMessages(fullPayload);
       const fullRealInput = choiceScale > 1 ? Math.ceil(fullInput * choiceScale) : fullInput;
+      const fullOutCap = isReasoningChoice ? maxChoiceOutput : Math.min(maxChoiceOutput, fullMain.outputTokens);
       const fullOut = Math.max(
         MIN_OUTPUT_TOKENS,
-        Math.min(CHOICE_MAX_OUTPUT_TOKENS, fullMain.outputTokens, baseWindow - margin - fullRealInput - choiceOverhead)
+        Math.min(fullOutCap, baseWindow - margin - fullRealInput - choiceOverhead)
       );
       if (!fullMain.impossible && !fullMain.plan.compacted && fullRealInput + fullOut + choiceOverhead <= baseWindow) {
         main = { ...fullMain, outputTokens: fullOut };
@@ -897,9 +904,10 @@ export function planChoiceRequest({
     const mainPayload = [...stripTrailingGuidance(main.payload), { role: "user", content: taskContent }];
     const mainInputTokens = countMessages(mainPayload);
     const mainRealInput = choiceScale > 1 ? Math.ceil(mainInputTokens * choiceScale) : mainInputTokens;
+    const choiceOutCap = isReasoningChoice ? maxChoiceOutput : Math.min(maxChoiceOutput, main.outputTokens);
     const choiceOutput = Math.max(
       MIN_OUTPUT_TOKENS,
-      Math.min(CHOICE_MAX_OUTPUT_TOKENS, main.outputTokens, baseWindow - margin - mainRealInput - choiceOverhead)
+      Math.min(choiceOutCap, baseWindow - margin - mainRealInput - choiceOverhead)
     );
     const mainFits = !main.impossible && mainRealInput + choiceOutput + choiceOverhead <= baseWindow;
     if (mainFits) {

@@ -128,7 +128,9 @@ export function openSettingsModal(options = {}) {
     el("div", { id: "popup-choice-model-wrap", class: "rp-field" }, [
       el("div", { class: "rp-settings__list-head" }, [
         el("label", { class: "rp-label", for: "popup-choice-model-select", text: "Choice generator model" }),
-        el("button", { type: "button", id: "popup-custom-choice-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+        el("div", { class: "rp-settings__inline-actions" }, [
+          el("button", { type: "button", id: "popup-custom-choice-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+        ]),
       ]),
       el("select", { id: "popup-choice-model-select", class: "rp-select" }),
       el("input", {
@@ -143,7 +145,9 @@ export function openSettingsModal(options = {}) {
     el("div", { class: "rp-field" }, [
       el("div", { class: "rp-settings__list-head" }, [
         el("label", { class: "rp-label", for: "popup-summary-model-select", text: "Recap model" }),
-        el("button", { type: "button", id: "popup-custom-summary-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+        el("div", { class: "rp-settings__inline-actions" }, [
+          el("button", { type: "button", id: "popup-custom-summary-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+        ]),
       ]),
       el("select", { id: "popup-summary-model-select", class: "rp-select" }),
       el("input", {

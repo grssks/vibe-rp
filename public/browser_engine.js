@@ -114,6 +114,8 @@ import {
   providerError,
   providerContextWindow,
   fetchAvailableModels,
+  extractMessageText,
+  hasReasoningField,
 } from "./llm_transport.js";
 import {
   LEDGER_COMPRESS_TARGET_WORDS,
@@ -419,9 +421,34 @@ export class BrowserChatEngine {
       data = null;
     }
     if (data && data.error) throw providerError(data.error);
-    const raw = data?.choices?.[0]?.message?.content;
-    noteObservedReasoning(endpoint, choiceModel, data?.usage);
-    const { choices } = parseChoices(typeof raw === "string" ? raw : "");
+    let choiceObj = data?.choices?.[0];
+    let msg = choiceObj?.message;
+    let raw = extractMessageText(msg?.content);
+    let sawReasoning = hasReasoningField(msg);
+    noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
+    let { choices } = parseChoices(raw);
+    if (choices.length === 0 && (choiceObj?.finish_reason === "length" || sawReasoning)) {
+      const retryRequest = planChoiceRequest({ ...planArgs, window: request.contextWindow });
+      if (retryRequest.outputTokens > request.outputTokens) {
+        ({ res, error } = await attempt(retryRequest));
+        if (!res.ok) throw error;
+        let retryData = null;
+        try {
+          retryData = await res.json();
+        } catch {
+          retryData = null;
+        }
+        if (retryData && retryData.error) throw providerError(retryData.error);
+        data = retryData;
+        request = retryRequest;
+        choiceObj = data?.choices?.[0];
+        msg = choiceObj?.message;
+        raw = extractMessageText(msg?.content);
+        sawReasoning = hasReasoningField(msg);
+        noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
+        ({ choices } = parseChoices(raw));
+      }
+    }
     return { choices, usage: data?.usage ?? null, request };
   }
 

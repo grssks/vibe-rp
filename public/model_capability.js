@@ -266,7 +266,11 @@ export function detectParameterRejection(err) {
   const needsMaxTokens =
     /max_completion_tokens.*?(?:not supported|unsupported|unrecognized|unknown)/i.test(msg);
   const unsupportedReasoningEffort =
-    /reasoning_effort.*?(?:not supported|unsupported|unrecognized|unknown)/i.test(msg);
+    /reasoning_effort.*?(?:not supported|unsupported|unrecognized|unknown|invalid|not permitted|extra)/i.test(msg) ||
+    /(?:unsupported|unrecognized|unknown|extra|invalid|not permitted).{0,40}?reasoning_effort/i.test(msg);
+  const unsupportedMinP =
+    /min_p.*?(?:not supported|unsupported|unrecognized|unknown|invalid|not permitted|extra)/i.test(msg) ||
+    /(?:unsupported|unrecognized|unknown|extra|invalid).{0,40}?min_p/i.test(msg);
   const unsupportedStreamOptions =
     /stream_options.*?(?:not supported|unsupported|unrecognized|unknown)/i.test(msg) ||
     /unsupported.*?parameter ['\"]?stream_options['\"]?/i.test(msg);
@@ -281,12 +285,13 @@ export function detectParameterRejection(err) {
     /(?:unsupported|unrecognized|unknown|invalid).{0,40}?response_format/i.test(msg) ||
     /json_object.*?(?:not supported|unsupported|invalid)/i.test(msg);
 
-  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedStreamOptions || unsupportedCacheControl || unsupportedPromptCacheKey || unsupportedResponseFormat) {
+  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedMinP || unsupportedStreamOptions || unsupportedCacheControl || unsupportedPromptCacheKey || unsupportedResponseFormat) {
     return {
       unsupportedTemp,
       needsMaxCompletionTokens,
       needsMaxTokens,
       unsupportedReasoningEffort,
+      unsupportedMinP,
       unsupportedStreamOptions,
       unsupportedCacheControl,
       unsupportedPromptCacheKey,

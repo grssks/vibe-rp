@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BrowserChatEngine, detectParameterRejection, ensembleCast } from "../public/browser_engine.js";
-import { promptCacheKeyFor } from "../public/model_capability.js";
+import { normalizeEndpointBase, extractMessageText, postWithParamRetry, learnRejectedParam } from "../public/llm_transport.js";
+import { promptCacheKeyFor, clearModelCapabilities } from "../public/model_capability.js";
 import { analyzeTurnState, countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
 import { mapSourceJsonToCard } from "../public/remote_import.js";
 import { resolveCardIdentity, substitutePlaceholders } from "../public/text.js";
@@ -174,5 +175,106 @@ describe("cross-turn n-gram echo detection for agglutinative prose", () => {
     });
     expect(state.tics.some((t) => t.id === "contrast")).toBe(true);
     expect(state.slopHits).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
+  });
+});
+
+describe("endpoint & transport hardening", () => {
+  test("12. normalizeEndpointBase strips trailing slashes, /chat/completions, and /models", () => {
+    expect(normalizeEndpointBase(" https://api.example.com/v1/// ")).toBe("https://api.example.com/v1");
+    expect(normalizeEndpointBase("https://api.example.com/v1/chat/completions/")).toBe("https://api.example.com/v1");
+    expect(normalizeEndpointBase("https://api.example.com/v1/models")).toBe("https://api.example.com/v1");
+  });
+
+  test("13. fetchAvailableModels handles { models: [{ name }] }, bare string arrays, and deduplicates", async () => {
+    const origFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ models: [{ name: "m-a" }, { id: "m-b" }, { name: "m-a" }] }), { status: 200 })) as unknown as typeof fetch;
+      expect(await BrowserChatEngine.fetchAvailableModels("https://api.example.com/v1/models", "k")).toEqual(["m-a", "m-b"]);
+
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(["raw-1", "raw-2", "raw-1"]), { status: 200 })) as unknown as typeof fetch;
+      expect(await BrowserChatEngine.fetchAvailableModels("https://api.example.com/v1", "")).toEqual(["raw-1", "raw-2"]);
+    } finally {
+      globalThis.fetch = origFetch;
+    }
+  });
+
+  test("14. detectParameterRejection + learnRejectedParam drops min_p and matches reversed reasoning_effort errors", () => {
+    clearModelCapabilities();
+    try {
+      const ep = "https://strict-gateway.test/v1";
+      const model = "strict-m";
+      const minPErr = new Error("HTTP 400: Extra inputs are not permitted: min_p");
+      expect(detectParameterRejection(minPErr)?.unsupportedMinP).toBe(true);
+      expect(learnRejectedParam(ep, model, minPErr)).toBe(true);
+      const body = BrowserChatEngine.buildRequestBody({ apiEndpoint: ep, model, minP: 0.08 }, msgs);
+      expect("min_p" in body).toBe(false);
+
+      const reErr = new Error("HTTP 400: Extra inputs are not permitted: reasoning_effort");
+      expect(detectParameterRejection(reErr)?.unsupportedReasoningEffort).toBe(true);
+    } finally {
+      clearModelCapabilities();
+    }
+  });
+
+  test("15. extractMessageText joins array-of-parts content and generateChoices parses it", async () => {
+    expect(extractMessageText([{ type: "text", text: "Hello " }, { type: "text", text: "world" }])).toBe("Hello world");
+    clearModelCapabilities();
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: [{ type: "text", text: '{"choices":[{"label":"Look","text":"I look around."}]}' }],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )) as unknown as typeof fetch;
+    try {
+      const res = await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "Silence." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: "https://parts.test/v1", model: "parts-m", maxContextTokens: 8192 },
+        count: 3,
+      });
+      expect(res.choices.length).toBe(1);
+      expect(res.choices[0].label).toBe("Look");
+    } finally {
+      globalThis.fetch = origFetch;
+      clearModelCapabilities();
+    }
+  });
+
+  test("16. postWithParamRetry retries transient 429/503 responses and succeeds", async () => {
+    const origFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("Rate limited", { status: 429, headers: { "Retry-After": "0" } });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const { res, error } = await postWithParamRetry({
+        base: "https://retry.test/v1",
+        headers: { "Content-Type": "application/json" },
+        endpoint: "https://retry.test/v1",
+        model: "m",
+        buildBody: () => ({ model: "m", messages: msgs }),
+        transientDelayMs: 1,
+      });
+      expect(calls).toBe(2);
+      expect(res.ok).toBe(true);
+      expect(error).toBeNull();
+    } finally {
+      globalThis.fetch = origFetch;
+    }
   });
 });

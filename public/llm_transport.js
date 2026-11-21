@@ -17,6 +17,38 @@ import {
   promptCacheKeyFor,
 } from "./model_capability.js";
 
+/** Normalizes an OpenAI-compatible base URL (strips trailing slashes and endpoint suffixes). */
+export function normalizeEndpointBase(rawEp) {
+  return String(rawEp || "")
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/(?:chat\/completions|models)$/i, "")
+    .replace(/\/+$/, "");
+}
+
+/** Extracts plain text from either a string or an array of content parts. */
+export function extractMessageText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (part && (part.type === "text" || typeof part.text === "string")) return part.text || "";
+      return "";
+    })
+    .join("");
+}
+
+/** True when a message or delta object carries non-empty reasoning/thought fields. */
+export function hasReasoningField(obj) {
+  return Boolean(
+    (typeof obj?.reasoning_content === "string" && obj.reasoning_content) ||
+    (typeof obj?.reasoning === "string" && obj.reasoning) ||
+    (typeof obj?.thought === "string" && obj.thought) ||
+    (Array.isArray(obj?.reasoning) && obj.reasoning.length)
+  );
+}
+
 /** Resolves endpoint base URL, model, and Authorization headers. */
 export function resolveEndpoint(settings) {
   const rawEp = String(settings?.apiEndpoint || "").trim();
@@ -26,7 +58,7 @@ export function resolveEndpoint(settings) {
   }
   const headers = { "Content-Type": "application/json" };
   if (settings && settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
-  const base = rawEp.replace(/\/$/, "").replace(/\/chat\/completions$/, "");
+  const base = normalizeEndpointBase(rawEp);
   return { base, model, headers };
 }
 
@@ -121,6 +153,7 @@ export function learnRejectedParam(endpoint, model, err) {
   if (rejection.needsMaxCompletionTokens) patch.tokenKey = "max_completion_tokens";
   if (rejection.needsMaxTokens) patch.tokenKey = "max_tokens";
   if (rejection.unsupportedReasoningEffort) patch.supportsReasoningEffort = false;
+  if (rejection.unsupportedMinP) patch.supportsMinP = false;
   if (rejection.unsupportedStreamOptions) patch.supportsStreamOptions = false;
   if (rejection.unsupportedCacheControl) patch.supportsCacheControl = false;
   if (rejection.unsupportedPromptCacheKey) patch.supportsPromptCacheKey = false;
@@ -133,22 +166,73 @@ export function learnRejectedParam(endpoint, model, err) {
   return true;
 }
 
+const TRANSIENT_STATUSES = new Set([429, 502, 503, 504]);
+
+function waitAbortable(ms, signal) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason instanceof Error ? signal.reason : Object.assign(new Error("Aborted"), { name: "AbortError" }));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason instanceof Error ? signal.reason : Object.assign(new Error("Aborted"), { name: "AbortError" }));
+    };
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+}
+
+function transientRetryDelay(res, attempt, overrideMs) {
+  if (typeof overrideMs === "number") return Math.max(0, overrideMs);
+  const rawAfter = res?.headers?.get?.("retry-after");
+  if (rawAfter !== null && rawAfter !== undefined && rawAfter !== "") {
+    const secs = Number(rawAfter);
+    if (Number.isFinite(secs) && secs >= 0) return Math.min(3000, Math.round(secs * 1000));
+  }
+  return 600 * (attempt + 1);
+}
+
 /**
- * Shared POST + multi-step parameter-rejection retry loop used across stream,
- * fold summarization, ledger compression, and Choice Mode generation.
+ * Shared POST + multi-step parameter-rejection & bounded transient retry loop
+ * used across stream, fold summarization, ledger compression, and Choice Mode.
  */
-export async function postWithParamRetry({ base, headers, endpoint, model, buildBody, signal, maxRetries = 4 }) {
+export async function postWithParamRetry({
+  base,
+  headers,
+  endpoint,
+  model,
+  buildBody,
+  signal,
+  maxRetries = 4,
+  maxTransientRetries = 2,
+  transientDelayMs = null,
+}) {
+  let paramAttempts = 0;
+  let transientAttempts = 0;
   let res = await postChat(base, headers, buildBody(0), signal);
   let httpErr = null;
-  for (let attempt = 0; !res.ok && attempt < maxRetries; attempt += 1) {
-    httpErr = await generationHttpError(res);
-    if (!learnRejectedParam(endpoint, model, httpErr)) {
-      return { res, error: httpErr };
+  while (!res.ok) {
+    if (TRANSIENT_STATUSES.has(res.status) && transientAttempts < maxTransientRetries) {
+      const delay = transientRetryDelay(res, transientAttempts, transientDelayMs);
+      transientAttempts += 1;
+      await waitAbortable(delay, signal);
+      res = await postChat(base, headers, buildBody(paramAttempts), signal);
+      continue;
     }
-    res = await postChat(base, headers, buildBody(attempt + 1), signal);
+    httpErr = await generationHttpError(res);
+    if (paramAttempts < maxRetries && learnRejectedParam(endpoint, model, httpErr)) {
+      paramAttempts += 1;
+      res = await postChat(base, headers, buildBody(paramAttempts), signal);
+      continue;
+    }
+    return { res, error: httpErr };
   }
-  if (!res.ok) httpErr = await generationHttpError(res);
-  return res.ok ? { res, error: null } : { res, error: httpErr };
+  return { res, error: null };
 }
 
 /** Builds a non-streaming auxiliary chat-completions request body. */
@@ -212,7 +296,7 @@ export function buildRequestBody(settings, messages, outputCeiling = null, sessi
   if (cap.supportsTemperature !== false) {
     if (typeof settings.temperature === "number") body.temperature = settings.temperature;
     if (typeof settings.topP === "number" && settings.topP < 1) body.top_p = settings.topP;
-    if (typeof settings.minP === "number" && settings.minP > 0) body.min_p = settings.minP;
+    if (typeof settings.minP === "number" && settings.minP > 0 && cap.supportsMinP !== false) body.min_p = settings.minP;
     if (typeof settings.frequencyPenalty === "number" && settings.frequencyPenalty !== 0) {
       body.frequency_penalty = settings.frequencyPenalty;
     }
@@ -295,8 +379,8 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
       sawReasoning = true;
       sawRefusal = true;
     }
-    const text = choice?.delta?.content ?? choice?.message?.content;
-    if (typeof text !== "string" || !text) return null;
+    const text = extractMessageText(choice?.delta?.content ?? choice?.message?.content);
+    if (!text) return null;
     return text;
   };
 
@@ -531,7 +615,7 @@ export function describeUsage({ usage, payload = [], outputCeiling = null } = {}
 export async function fetchAvailableModels(endpoint, apiKey) {
   const rawEndpoint = String(endpoint || "").trim();
   if (!rawEndpoint) throw new Error("Enter an API base URL before fetching models.");
-  const base = rawEndpoint.replace(/\/$/, "").replace(/\/chat\/completions$/, "");
+  const base = normalizeEndpointBase(rawEndpoint);
   const headers = {};
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
   const res = await fetch(`${base}/models`, { headers });
@@ -544,5 +628,15 @@ export async function fetchAvailableModels(endpoint, apiKey) {
     throw new Error(detail);
   }
   const data = await res.json();
-  return (data.data || []).map((m) => m.id);
+  const rawList = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : (Array.isArray(data?.models) ? data.models : []));
+  const seen = new Set();
+  const ids = [];
+  for (const m of rawList) {
+    const id = typeof m === "string" ? m.trim() : String(m?.id || m?.name || "").trim();
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  return ids;
 }

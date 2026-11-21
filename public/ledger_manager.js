@@ -17,9 +17,9 @@ import {
   fitFoldLedgerTokens,
   resolveContextBudgets,
 } from "./context_plan.js";
-import { sessionOverheadTokens, effectiveContextWindow, summaryModelOf } from "./model_capability.js";
+import { sessionOverheadTokens, effectiveContextWindow, summaryModelOf, noteObservedReasoning } from "./model_capability.js";
 import { ensembleCast, firstText } from "./prompt_builder.js";
-import { resolveEndpoint, postWithParamRetry, buildAuxiliaryBody } from "./llm_transport.js";
+import { resolveEndpoint, postWithParamRetry, buildAuxiliaryBody, extractMessageText, hasReasoningField } from "./llm_transport.js";
 
 export const LEDGER_COMPRESS_TARGET_WORDS = Math.round(SUMMARY_TARGET_WORDS * 0.55);
 
@@ -193,6 +193,7 @@ async function summaryAttempt({ base, headers, settings, transcript, previousLed
         outputTokens: plan.budget,
         temperature: 0.1,
         capReasoningLow: true,
+        forceReasoningLow: true,
       }),
   });
   if (!res.ok) {
@@ -200,8 +201,9 @@ async function summaryAttempt({ base, headers, settings, transcript, previousLed
   }
   const data = await res.json();
   const choice = data?.choices?.[0];
-  const rawText = choice?.message?.content;
-  const cleanText = typeof rawText === "string" ? stripThoughtBlocks(rawText).trim() : "";
+  noteObservedReasoning(settings?.apiEndpoint, plan.model, data?.usage, hasReasoningField(choice?.message));
+  const rawText = extractMessageText(choice?.message?.content);
+  const cleanText = rawText ? stripThoughtBlocks(rawText).trim() : "";
   const hasText = cleanText.length > 0;
   const truncated = choice?.finish_reason === "length";
   const extra = Math.max(SUMMARY_REASONING_HEADROOM, Math.floor(Math.max(0, SUMMARY_MAX_TOKENS - plan.budget) / 2));

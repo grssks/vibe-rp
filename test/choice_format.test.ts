@@ -1106,4 +1106,43 @@ describe("the deliberation gate learns from observed reasoning", () => {
       clearModelCapabilities();
     }
   });
+
+  test("generateChoices detects reasoning from message.reasoning without usage details and retries with larger budget", async () => {
+    clearModelCapabilities();
+    const origFetch = globalThis.fetch;
+    const bodies: Array<{ max_tokens?: number; reasoning_effort?: string }> = [];
+    let call = 0;
+    globalThis.fetch = async (_url, init) => {
+      call += 1;
+      const body = JSON.parse(String(init?.body || "{}"));
+      bodies.push(body);
+      if (call === 1) {
+        return new Response(JSON.stringify({
+          choices: [{ finish_reason: "length", message: { content: null, reasoning: "Thinking through the scene..." } }],
+          usage: { prompt_tokens: 100, completion_tokens: 768 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        choices: [{ finish_reason: "stop", message: { content: '{"choices":[{"label":"Step forward","text":"I step into the light."}]}' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 420 },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    };
+    try {
+      const res = await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "She looked up." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: endpoint, model: "story-model", choiceModel: "reason-choice", maxContextTokens: 8192 },
+        count: 3,
+      });
+      expect(call).toBe(2);
+      expect(bodies[0].max_tokens).toBe(768);
+      expect(bodies[1].max_tokens).toBeGreaterThan(768);
+      expect(bodies[1].reasoning_effort).toBe("low");
+      expect(res.choices.length).toBe(1);
+      expect(getModelCapability(endpoint, "reason-choice").observedReasoning).toBe(true);
+    } finally {
+      globalThis.fetch = origFetch;
+      clearModelCapabilities();
+    }
+  });
 });
