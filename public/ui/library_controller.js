@@ -29,7 +29,7 @@ import {
   cardTitle,
 } from "./character_card.js";
 
-export const SORT_MODES = ["recent", "name"];
+export const SORT_MODES = ["recent", "favorites", "name"];
 
 /** One read of the sessions store, shared by every card. */
 async function readAllSessions(db) {
@@ -87,13 +87,18 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
   }
 
 
+  let refreshSeq = 0;
+
   /** Reloads cards and the session index. One session read for the whole set. */
   async function refresh() {
+    const seq = ++refreshSeq;
     emit({ status: "loading", error: null });
     try {
       const [cards, sessions] = await Promise.all([db.getAllCards(), readAllSessions(db)]);
+      if (seq !== refreshSeq) return state;
       emit({ cards: withSessions(cards, sessions), sessions, status: "ready", error: null });
     } catch (error) {
+      if (seq !== refreshSeq) return state;
       emit({ status: "error", error });
       report(error);
     }
@@ -107,23 +112,35 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
    */
   async function importCard(incoming, { onDuplicate } = {}) {
     if (!incoming || typeof incoming !== "object") return null;
-    const dup = findDuplicate(state.cards, incoming);
+    const record = incoming.data && typeof incoming.data === "object"
+      ? { ...incoming, data: { ...incoming.data } }
+      : { ...incoming };
+    const dup = findDuplicate(state.cards, record);
     if (dup) {
-      const choice = (await onDuplicate?.(dup, incoming)) || "abort";
+      const choice = (await onDuplicate?.(dup, record)) || "abort";
       if (choice === "abort") return null;
       if (choice === "replace") {
-        // Keep the existing id so every conversation stays linked.
-        incoming.id = dup.card.id;
-        await db.saveCard(incoming);
+        // Keep the existing id and card-level preset bindings so conversations keep their voice.
+        record.id = dup.card.id;
+        if (!record.userPersonaId && dup.card.userPersonaId) record.userPersonaId = dup.card.userPersonaId;
+        if (!record.directivePresetId && dup.card.directivePresetId) record.directivePresetId = dup.card.directivePresetId;
+        if (record.data && dup.card.data) {
+          if (!record.data.userPersonaId && dup.card.data.userPersonaId) record.data.userPersonaId = dup.card.data.userPersonaId;
+          if (!record.data.directivePresetId && dup.card.data.directivePresetId) record.data.directivePresetId = dup.card.data.directivePresetId;
+        }
+        await db.saveCard(record);
         await refresh();
-        return incoming;
+        return record;
       }
-      // "add" falls through to a fresh record.
+      // "add" falls through to a fresh record with a non-colliding id.
     }
-    incoming.id = incoming.id || `card_${now()}`;
-    await db.saveCard(incoming);
+    const idClash = record.id && state.cards.some((card) => card.id === record.id);
+    if (!record.id || idClash) {
+      record.id = `card_${now()}_${Math.random().toString(36).slice(2, 6)}`;
+    }
+    await db.saveCard(record);
     await refresh();
-    return incoming;
+    return record;
   }
 
   /** Deletes a card and its sessions, then reloads. */
@@ -176,6 +193,64 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
     return next;
   }
 
+  /** Toggles favorite/pinned status for a card and reloads. */
+  async function toggleFavorite(cardId) {
+    const card = state.cards.find((item) => item.id === cardId);
+    if (!card) return false;
+    const fav = !card.favorite;
+    const next = {
+      ...card,
+      favorite: fav,
+      data: card.data && typeof card.data === "object" ? { ...card.data, favorite: fav } : card.data,
+    };
+    delete next.sessions;
+    delete next.sessionCount;
+    delete next.latestSession;
+    delete next.lastUpdated;
+    await db.saveCard(next);
+    await refresh();
+    return fav;
+  }
+
+  /** Deep-clones a card with a fresh id and " (Copy)" suffix. */
+  async function cloneCard(cardId) {
+    const card = state.cards.find((item) => item.id === cardId);
+    if (!card) return null;
+    const baseName = cardTitle(card);
+    const copyName = `${baseName} (Copy)`;
+    const id = `card_${now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const clone = structuredClone(card);
+    delete clone.sessions;
+    delete clone.sessionCount;
+    delete clone.latestSession;
+    delete clone.lastUpdated;
+    clone.id = id;
+    clone.name = copyName;
+    clone.favorite = false;
+    clone.createdAt = new Date(now()).toISOString();
+    clone.updatedAt = clone.createdAt;
+    if (clone.data && typeof clone.data === "object") {
+      clone.data.name = copyName;
+      clone.data.favorite = false;
+    }
+    await db.saveCard(clone);
+    await refresh();
+    return getCard(id);
+  }
+
+  /** Saves a new or edited card and reloads. */
+  async function saveCard(card) {
+    if (!card) return null;
+    const next = { ...card };
+    delete next.sessions;
+    delete next.sessionCount;
+    delete next.latestSession;
+    delete next.lastUpdated;
+    await db.saveCard(next);
+    await refresh();
+    return getCard(next.id);
+  }
+
   /** The card record with the given id, or null. */
   function getCard(cardId) {
     return state.cards.find((card) => card.id === cardId) || null;
@@ -200,6 +275,9 @@ export function createLibraryController({ db, now = () => Date.now(), onError = 
     visibleCards,
     refresh,
     importCard,
+    saveCard,
+    cloneCard,
+    toggleFavorite,
     removeCard,
     renameCard,
     removeSession,

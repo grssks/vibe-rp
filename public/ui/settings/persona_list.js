@@ -67,6 +67,15 @@ function buildRow(persona, handlers, existing) {
       attrs: { "data-action": "edit" },
       onclick: () => handlers.onEdit(persona),
     }),
+    handlers.onClone
+      ? el("button", {
+          type: "button",
+          class: "rp-btn rp-btn--ghost rp-btn--sm",
+          text: "Duplicate",
+          attrs: { "data-action": "clone" },
+          onclick: () => handlers.onClone(persona),
+        })
+      : null,
     persona.isDefault
       ? null
       : el("button", {

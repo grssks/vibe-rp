@@ -133,7 +133,7 @@ function paintAvatar(media, card) {
   else if (!current) media.appendChild(el("span", { class: "rp-avatar__initials", text: letter }));
 }
 
-function paintAction(actions, card, handlers) {
+function paintAction(actions, article, card, handlers) {
   const wantResume = Boolean(card.latestSession);
   const resume = actions.querySelector('[data-action="resume"]');
   if (wantResume) {
@@ -150,7 +150,7 @@ function paintAction(actions, card, handlers) {
         href,
         attrs: { "data-action": "resume" },
       });
-      link.addEventListener("click", () => handlers.onResume?.(card, card.latestSession));
+      link.addEventListener("click", () => handlers.onResume?.(article.__card, article.__card?.latestSession));
       actions.prepend(link);
     } else if (resume.getAttribute("href") !== href) {
       resume.setAttribute("href", href);
@@ -169,7 +169,7 @@ function paintAction(actions, card, handlers) {
 function fitCardBodies(root) {
   if (!root) return;
   for (const body of root.querySelectorAll(".rp-card__body:not(.rp-card__body--empty)")) {
-    fitClampedText(body, body.textContent);
+    fitClampedText(body, body.__fullText ?? body.textContent);
   }
 }
 
@@ -201,6 +201,14 @@ export function renderCard(card, handlers = {}, existing = null) {
     // it. Its listener reads `article.__card` at click time (like
     // `onOpenDetail` above) so a node reused across repaints acts on the card
     // it currently shows, not the one it was built for.
+    const favBtn = el("button", {
+      type: "button",
+      class: "rp-btn rp-btn--ghost rp-btn--icon rp-card__fav",
+      text: "\u2606",
+      attrs: { "aria-label": "Pin as favorite", "aria-pressed": "false" },
+    });
+    favBtn.addEventListener("click", () => handlers.onToggleFavorite?.(article.__card));
+
     const newChat = el("button", {
       type: "button",
       class: "rp-btn rp-btn--primary rp-btn--sm",
@@ -210,11 +218,18 @@ export function renderCard(card, handlers = {}, existing = null) {
     newChat.addEventListener("click", () => handlers.onNewChat?.(article.__card));
     const footer = el("div", { class: "rp-card__footer" }, [
       el("span", { class: "rp-card__meta rp-tnum" }),
-      el("div", { class: "rp-card__actions" }, [newChat]),
+      el("div", { class: "rp-card__actions" }, [favBtn, newChat]),
     ]);
     article.append(link, footer);
   }
   article.__card = card;
+  const favBtn = article.querySelector(".rp-card__fav");
+  if (favBtn) {
+    const isFav = Boolean(card.favorite);
+    favBtn.textContent = isFav ? "\u2605" : "\u2606";
+    favBtn.setAttribute("aria-pressed", isFav ? "true" : "false");
+    favBtn.setAttribute("aria-label", isFav ? "Unpin favorite" : "Pin as favorite");
+  }
   const title = cardTitle(card);
   const link = article.querySelector(".rp-card__link");
   link.setAttribute("aria-label", `Open ${title}`);
@@ -226,14 +241,15 @@ export function renderCard(card, handlers = {}, existing = null) {
 
   const blurb = cardDescription(card);
   const body = link.querySelector(".rp-card__body");
-  // The full text is written here; `fitCardBody` trims it to a whole word once
-  // the card is in the document and can be measured.
-  body.textContent = blurb || NO_SYNOPSIS;
+  // The full text is stored for resize recovery; `fitCardBodies` trims it to a
+  // whole word once the card is in the document and can be measured.
+  body.__fullText = blurb || NO_SYNOPSIS;
+  body.textContent = body.__fullText;
   body.classList.toggle("rp-card__body--empty", !blurb);
 
   const count = card.sessionCount || 0;
   article.querySelector(".rp-card__meta").textContent = `${count} ${count === 1 ? "chat" : "chats"}`;
-  paintAction(article.querySelector(".rp-card__actions"), card, handlers);
+  paintAction(article.querySelector(".rp-card__actions"), article, card, handlers);
   return article;
 }
 
@@ -360,7 +376,9 @@ export function mountLibrary({ grid, tagFilter, status, controller, handlers = {
   function syncAddTiles(state, cards) {
     for (const tile of grid.querySelectorAll(".rp-card--add")) tile.remove();
     if (!handlers.onImport || state.query || state.tag || cards.length === 0) return;
-    const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+    const tpl = getComputedStyle(grid).gridTemplateColumns;
+    if (!tpl || tpl === "none") return;
+    const columns = tpl.split(" ").filter(Boolean).length;
     if (!columns) return;
     const remainder = cards.length % columns;
     if (remainder === 0) return;

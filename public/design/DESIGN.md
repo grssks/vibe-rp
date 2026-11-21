@@ -596,7 +596,7 @@ block is a bordered `.rp-surface` card so a reader can see where one ends:
 | Class | Use |
 |---|---|
 | `.rp-ledger__summary`, `__summary-head`, `__summary-used`, `__summary-of`, `__summary-note` | The headline: how full the window is, and what that means. `data-status` on the summary (`room`, `filling`, `full`, `over`) drives the meter colour and the figure colour together. |
-| `.rp-ledger__meter-row`, `.rp-ledger__meter`, `__meter-pct` | The window meter. The fill is a `<span>` with an inline `width`, because a runtime-computed proportion cannot be covered by a hash. |
+| `.rp-ledger__meter-row`, `.rp-ledger__meter`, `__meter-pct` | The window meter. The fill is a `<span data-pct>`; `applyContextPanelStyles` writes its `width` through the CSSOM after mount, because `style-src 'self'` forbids a `style` attribute. |
 | `.rp-ledger__group`, `__group-title`, `__rows` | One titled block of rows. A group with no rows renders as nothing at all. |
 | `.rp-ledger__row`, `__key`, `__hint`, `__value` | One label-and-figure line. The value column is tabular so figures do not reflow. |
 | `.rp-ledger__note` | A full-width sentence for information that is not a measurement. |

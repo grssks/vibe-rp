@@ -32,8 +32,23 @@ export function el(tag, props = {}, children = []) {
         else node.setAttribute(k, v === true ? "" : String(v));
       }
     } else if (key === "style") {
-      if (typeof value === "string") node.style.cssText = value;
-      else Object.assign(node.style, value);
+      if (typeof value === "string") {
+        if (typeof node.style?.setProperty === "function") {
+          for (const decl of value.split(";")) {
+            const colon = decl.indexOf(":");
+            if (colon === -1) continue;
+            const prop = decl.slice(0, colon).trim();
+            const val = decl.slice(colon + 1).trim();
+            if (prop && val) node.style.setProperty(prop, val);
+          }
+        } else if (node.style) {
+          node.style.cssText = value;
+        }
+      } else if (value && typeof value === "object") {
+        for (const [prop, val] of Object.entries(value)) {
+          if (val !== undefined && val !== null) node.style[prop] = val;
+        }
+      }
     } else node[key] = value;
   }
   for (const child of [].concat(children)) {

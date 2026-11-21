@@ -19,6 +19,8 @@ import { createToastHost } from "./toast.js";
 import { openDetailModal } from "./detail_modal.js";
 import { openImportModal, importCardFromUrl, SESSION_STORAGE_KEY } from "./import_flow.js";
 import { openSettingsModal } from "./settings/settings_modal.js";
+import { openCardEditor } from "./editors/card_editor.js";
+import { serializeCardV2, buildPngWithChara } from "../card_parse.js";
 import { confirmAction, confirmDelete } from "./confirm.js";
 import { compressImage } from "./image.js";
 import { initTheme, toggleTheme, getTheme, onThemeChange } from "./theme.js";
@@ -64,6 +66,7 @@ const statusLine = el("library-status");
 const tagFilter = el("library-tags");
 const searchInput = el("library-search");
 const sortSelect = el("library-sort");
+const createCardBtn = el("create-card-btn");
 const importBtn = el("import-btn");
 const settingsBtn = el("toggle-settings-btn");
 const themeBtn = el("theme-toggle");
@@ -97,6 +100,7 @@ const view = mountLibrary({
   handlers: {
     onOpenDetail: (card) => openDetail(card),
     onNewChat: (card) => startConversation(card),
+    onToggleFavorite: (card) => controller.toggleFavorite(card.id),
     onResume: (card, session) => {
       void card;
       void session;
@@ -163,7 +167,57 @@ async function openDetail(card) {
         await controller.removeSession(session.id);
         host.toast("Chat deleted.", { tone: "info" });
       },
+      onEditCard: (target) => openEditor(target),
+      onCloneCard: async (target) => {
+        const copy = await controller.cloneCard(target.id);
+        if (copy) host.toast(`Duplicated "${copy.name}".`, { tone: "success" });
+      },
+      onExportCardJson: (target) => {
+        const json = JSON.stringify(serializeCardV2(target), null, 2);
+        const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+        const name = String(target.data?.name || target.name || "character").replace(/[^a-zA-Z0-9._-]+/g, "_");
+        triggerBlobDownload(blob, `${name}.json`);
+      },
+      onExportCardPng: async (target) => {
+        let pngBytes = null;
+        const avatarUrl = target.avatar || target.data?.avatar;
+        if (avatarUrl && typeof avatarUrl === "string" && (avatarUrl.startsWith("data:") || avatarUrl.startsWith("blob:"))) {
+          try {
+            const res = await fetch(avatarUrl);
+            const buf = await res.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+              pngBytes = bytes;
+            }
+          } catch { /* fallback to 1x1 PNG inside buildPngWithChara */ }
+        }
+        const out = buildPngWithChara(target, pngBytes);
+        const blob = new Blob([out], { type: "image/png" });
+        const name = String(target.data?.name || target.name || "character").replace(/[^a-zA-Z0-9._-]+/g, "_");
+        triggerBlobDownload(blob, `${name}.png`);
+      },
     },
+  });
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openEditor(card = null) {
+  openCardEditor({
+    card,
+    personas: LocalDb.getAllPersonas(),
+    directives: LocalDb.getAllDirectives(),
+    host,
+    onSave: (payload) => controller.saveCard(payload),
   });
 }
 
@@ -173,9 +227,14 @@ function pickImageFile() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.addEventListener("change", () => resolve(input.files?.[0] || null), { once: true });
-    // A cancelled picker fires no change event in most engines; the listener
-    // simply stays unused and is collected with the element.
+    let done = false;
+    const settle = (file) => {
+      if (done) return;
+      done = true;
+      resolve(file);
+    };
+    input.addEventListener("change", () => settle(input.files?.[0] || null), { once: true });
+    input.addEventListener("cancel", () => settle(null), { once: true });
     input.click();
   });
 }
@@ -184,8 +243,14 @@ function openImport() {
   openImportModal({ controller, host });
 }
 
+let activeSettings = null;
 function openSettings(initialTab) {
-  openSettingsModal({
+  if (activeSettings) {
+    if (initialTab) activeSettings.selectTab?.(initialTab);
+    return activeSettings;
+  }
+  settingsBtn?.setAttribute("aria-expanded", "true");
+  activeSettings = openSettingsModal({
     host,
     tab: initialTab,
     confirm: confirmDeleteThing,
@@ -213,10 +278,14 @@ function openSettings(initialTab) {
     deleteDirective: (id) => LocalDb.deleteDirective(id),
     setDefaultDirective: (id) => LocalDb.setDefaultDirective(id),
     onDataChanged: async () => {
-      await controller.load();
-      render();
+      await controller.refresh();
+    },
+    onClose: () => {
+      activeSettings = null;
+      settingsBtn?.setAttribute("aria-expanded", "false");
     },
   });
+  return activeSettings;
 }
 
 async function startConversation(card, customOpening) {
@@ -226,10 +295,10 @@ async function startConversation(card, customOpening) {
   const opening =
     customOpening || groupGreet || data.first_mes || "The door closes behind you. Silence settles into the corridor.";
   const session = {
-    id: `sess_${Date.now()}`,
+    id: `sess_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     cardId: card.id,
     title: `Chat ${count + 1}`,
-    messages: [{ id: `msg_${Date.now()}`, role: "assistant", content: opening, timestamp: Date.now() }],
+    messages: [{ id: "msg_init", role: "assistant", content: opening, timestamp: Date.now() }],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -249,6 +318,7 @@ sortSelect?.addEventListener("change", () => controller.setSort(sortSelect.value
 
 tagFilter?.addEventListener("change", () => controller.setTag(tagFilter.value));
 
+createCardBtn?.addEventListener("click", () => openEditor(null));
 importBtn?.addEventListener("click", () => openImport());
 settingsBtn?.addEventListener("click", () => openSettings());
 

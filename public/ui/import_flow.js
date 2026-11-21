@@ -28,8 +28,13 @@ export const SESSION_STORAGE_KEY = "vibe_rp_import_session";
 
 const ACCEPTED = ".json,.jsonc,.png,.webp,.txt";
 
+const MAX_CARD_FILE_BYTES = 50 * 1024 * 1024;
+
 /** Reads a picked file into a normalised card. Throws a readable error. */
 export async function parseCardFile(file) {
+  if (typeof file?.size === "number" && file.size > MAX_CARD_FILE_BYTES) {
+    throw new Error("Card file exceeds the 50 MB size limit.");
+  }
   const ext = (file.name || "").toLowerCase().split(".").pop();
   if (ext === "json" || ext === "jsonc" || ext === "txt") {
     const json = parseJsonLoose(stripJsonComments(await file.text()));
@@ -64,7 +69,7 @@ function readStoredSession(sessionKey, host) {
   try {
     const stored = JSON.parse(localStorage.getItem(sessionKey) || "null");
     if (!stored?.accessToken) return null;
-    if (stored.expiresAt && Date.now() / 1000 > stored.expiresAt) {
+    if (stored.expiresAt && Date.now() / 1000 > stored.expiresAt && !stored.refreshToken) {
       host?.toast?.(
         "Your saved import session has expired, so character definitions cannot be fetched. Paste fresh session cookies in Settings, Engine, Import session.",
         { tone: "danger" }
@@ -82,9 +87,10 @@ export async function importCardFromUrl(url, { controller, host, sessionKey = SE
   const trimmed = String(url || "").trim();
   if (!trimmed) return false;
   try {
-    const session = readStoredSession(sessionKey, host);
+    const isPageUrl = Boolean(isCharacterPageUrl(trimmed));
+    const session = isPageUrl ? readStoredSession(sessionKey, host) : null;
     const incoming = await parseCardUrl(trimmed, session);
-    if (isCharacterPageUrl(trimmed)) {
+    if (isPageUrl) {
       const avatarUrl = incoming.data?.extensions?.source?.avatar_url;
       if (incoming.data?.extensions?.source) delete incoming.data.extensions.source.avatar_url;
       if (avatarUrl) {
@@ -183,6 +189,7 @@ export function openImportModal({ controller, host, sessionKey = SESSION_STORAGE
     const fileInput = el("input", {
       type: "file",
       accept: ACCEPTED,
+      multiple: true,
       class: "visually-hidden",
       attrs: { "aria-hidden": "true", tabindex: "-1" },
     });
@@ -288,6 +295,38 @@ export function openImportModal({ controller, host, sessionKey = SESSION_STORAGE
       syncState();
     }
 
+    async function runFiles(fileList) {
+      const files = Array.from(fileList || []).filter(Boolean);
+      if (busy || files.length === 0) return;
+      if (files.length === 1) {
+        return runFile(files[0]);
+      }
+      busy = true;
+      mode = "file";
+      fileName.textContent = `${files.length} files`;
+      syncState();
+      let imported = 0;
+      let failed = 0;
+      for (const file of files) {
+        try {
+          const card = await parseCardFile(file);
+          const stored = await controller.importCard(card, { onDuplicate: (dup, incoming) => promptDuplicate(dup, incoming) });
+          if (stored) imported += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (imported > 0) {
+        const suffix = failed > 0 ? ` (${failed} skipped)` : "";
+        host?.toast?.(`Imported ${imported} ${imported === 1 ? "character" : "characters"}${suffix}.`, { tone: "success" });
+        finish();
+        return;
+      }
+      host?.toast?.("Could not import any of the selected files.", { tone: "danger" });
+      busy = false;
+      syncState();
+    }
+
     async function submitUrl() {
       if (busy) return;
       const url = urlInput.value.trim();
@@ -311,9 +350,9 @@ export function openImportModal({ controller, host, sessionKey = SESSION_STORAGE
       fileInput.click();
     });
     fileInput.addEventListener("change", () => {
-      const file = fileInput.files?.[0];
+      const files = Array.from(fileInput.files || []);
       fileInput.value = "";
-      if (file) runFile(file);
+      if (files.length) runFiles(files);
     });
 
     const hasFiles = (event) => Array.from(event.dataTransfer?.types || []).includes("Files");
@@ -335,12 +374,12 @@ export function openImportModal({ controller, host, sessionKey = SESSION_STORAGE
     });
     dropZone.addEventListener("drop", (event) => {
       if (mode === "url" || busy) return;
-      const file = event.dataTransfer?.files?.[0];
-      if (!file) return;
+      const files = Array.from(event.dataTransfer?.files || []);
+      if (!files.length) return;
       event.preventDefault();
       dragDepth = 0;
       dropZone.classList.remove("is-dragover");
-      runFile(file);
+      runFiles(files);
     });
 
     removeFile.addEventListener("click", () => {
@@ -358,6 +397,7 @@ export function openImportModal({ controller, host, sessionKey = SESSION_STORAGE
       syncState();
     });
     urlInput.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter") {
         event.preventDefault();
         submitUrl();

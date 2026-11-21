@@ -79,8 +79,10 @@ export function initTabs(tablist, { activation = "auto" } = {}) {
     tabs.findIndex((tab) => tab.getAttribute("aria-selected") === "true")
   );
   if (tabs[currentIndex] && !enabled.includes(tabs[currentIndex])) currentIndex = 0;
+  let focusedIndex = currentIndex;
 
   function render(focusTab) {
+    focusedIndex = currentIndex;
     tabs.forEach((tab, index) => {
       const selected = index === currentIndex;
       tab.setAttribute("aria-selected", selected ? "true" : "false");
@@ -96,16 +98,25 @@ export function initTabs(tablist, { activation = "auto" } = {}) {
     });
   }
 
+  function focusOnly(targetTab) {
+    focusedIndex = tabs.indexOf(targetTab);
+    for (const tab of tabs) tab.setAttribute("tabindex", tab === targetTab ? "0" : "-1");
+    targetTab.focus();
+  }
+
   function move(delta) {
-    const order = tabs.filter((tab) => enabled.includes(tab));
-    const at = order.indexOf(tabs[currentIndex]);
+    const active = tabsOf(tablist);
+    const order = tabs.filter((tab) => active.includes(tab));
+    if (!order.length) return;
+    const baseIndex = activation === "auto" ? currentIndex : focusedIndex;
+    let at = order.indexOf(tabs[baseIndex]);
+    if (at === -1) at = 0;
     const next = order[(at + delta + order.length) % order.length];
-    currentIndex = tabs.indexOf(next);
-    if (activation === "auto") render(true);
-    else {
-      // Manual activation: focus moves, selection waits for Enter or Space.
-      for (const tab of tabs) tab.setAttribute("tabindex", tab === next ? "0" : "-1");
-      next.focus();
+    if (activation === "auto") {
+      currentIndex = tabs.indexOf(next);
+      render(true);
+    } else {
+      focusOnly(next);
     }
   }
 
@@ -121,29 +132,39 @@ export function initTabs(tablist, { activation = "auto" } = {}) {
         event.preventDefault();
         move(-1);
         break;
-      case "Home":
+      case "Home": {
         event.preventDefault();
-        currentIndex = tabs.indexOf(enabled[0]);
-        if (activation === "auto") render(true);
-        else {
-          for (const tab of tabs) tab.setAttribute("tabindex", tab === enabled[0] ? "0" : "-1");
-          enabled[0].focus();
+        const active = tabsOf(tablist);
+        if (!active.length) break;
+        if (activation === "auto") {
+          currentIndex = tabs.indexOf(active[0]);
+          render(true);
+        } else {
+          focusOnly(active[0]);
         }
         break;
-      case "End":
+      }
+      case "End": {
         event.preventDefault();
-        currentIndex = tabs.indexOf(enabled[enabled.length - 1]);
-        if (activation === "auto") render(true);
-        else {
-          for (const tab of tabs) tab.setAttribute("tabindex", tab === enabled[enabled.length - 1] ? "0" : "-1");
-          enabled[enabled.length - 1].focus();
+        const active = tabsOf(tablist);
+        if (!active.length) break;
+        const last = active[active.length - 1];
+        if (activation === "auto") {
+          currentIndex = tabs.indexOf(last);
+          render(true);
+        } else {
+          focusOnly(last);
         }
         break;
+      }
       case "Enter":
       case " ":
         if (activation === "manual") {
+          const tab = event.target.closest?.('[role="tab"]');
+          const active = tabsOf(tablist);
+          if (!tab || !tabs.includes(tab) || !active.includes(tab)) break;
           event.preventDefault();
-          currentIndex = tabs.indexOf(event.target.closest('[role="tab"]'));
+          currentIndex = tabs.indexOf(tab);
           render(true);
         }
         break;
@@ -187,7 +208,8 @@ export function initTabs(tablist, { activation = "auto" } = {}) {
           (tab) => tab.id === target || tab.dataset.tab === target || tab.getAttribute("aria-controls") === target
         );
       else if (target instanceof Element) index = tabs.indexOf(target);
-      if (index < 0 || index >= tabs.length || !enabled.includes(tabs[index])) return false;
+      const active = tabsOf(tablist);
+      if (index < 0 || index >= tabs.length || !active.includes(tabs[index])) return false;
       currentIndex = index;
       render(false);
       return true;

@@ -102,6 +102,8 @@ export function bindDismissable({ element, isOpen: isOpenFn, onDismiss, trigger 
   };
   const onKeydown = (event) => {
     if (event.key !== "Escape") return;
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.target?.closest?.('[data-escape-local="true"]')) return;
     if (topModal()) return; // a modal dialog owns Escape
     if (!isOpenFn()) return;
     event.preventDefault();
@@ -147,6 +149,8 @@ function onKeydown(event) {
   const dialog = entry.element;
 
   if (event.key === "Escape") {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.target?.closest?.('[data-escape-local="true"]')) return;
     // The topmost dialog consumes Escape. Nested dialogs must not fall
     // through and close the dialog underneath them.
     event.preventDefault();
@@ -250,6 +254,7 @@ export function openModal({ element, trigger = null, onClose = null, initialFocu
 
   const onCancel = (event) => {
     event.preventDefault();
+    if (document.activeElement?.closest?.('[data-escape-local="true"]')) return;
     closeModal(element);
   };
   element.addEventListener("cancel", onCancel);

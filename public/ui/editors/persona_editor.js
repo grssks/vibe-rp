@@ -21,6 +21,7 @@
 import { el } from "../dom.js";
 import { isSafeAvatarUrl } from "../character_card.js";
 import { openEditorDialog } from "./editor_dialog.js";
+import { estimateTokens } from "../../context_plan.js";
 
 function avatarUrl(value) {
   const text = String(value || "");
@@ -74,6 +75,20 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
   ]);
   genderSelect.value = persona?.gender || "";
 
+  const pronounsInput = el("input", {
+    id: "rp-persona-pronouns",
+    class: "rp-input",
+    type: "text",
+    maxlength: 80,
+    value: persona?.pronouns || "",
+    placeholder: "Custom pronouns (e.g. they/them/their/theirs/themself)",
+  });
+
+  const templateTokens = el("span", {
+    class: "rp-badge rp-badge--muted rp-tnum",
+    text: `~${estimateTokens(persona?.template || "")} tokens`,
+  });
+
   const templateInput = el("textarea", {
     id: "rp-persona-template",
     class: "rp-textarea",
@@ -82,6 +97,9 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     placeholder:
       "e.g. Bal is the reigning monarch of Florin. Speaks with measured, quiet authority.",
     attrs: { "aria-describedby": "rp-persona-template-help" },
+  });
+  templateInput.addEventListener("input", () => {
+    templateTokens.textContent = `~${estimateTokens(templateInput.value)} tokens`;
   });
 
   const error = el("p", { class: "rp-error", hidden: true });
@@ -143,10 +161,17 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
           el("label", { class: "rp-label", for: "rp-persona-gender", text: "Gender & pronouns" }),
           genderSelect,
         ]),
+        el("div", { class: "rp-field" }, [
+          el("label", { class: "rp-label", for: "rp-persona-pronouns", text: "Custom pronouns (optional)" }),
+          pronounsInput,
+        ]),
       ]),
     ]),
     el("div", { class: "rp-field" }, [
-      el("label", { class: "rp-label", for: "rp-persona-template", text: "Persona definition and instructions" }),
+      el("div", { class: "rp-field__head" }, [
+        el("label", { class: "rp-label", for: "rp-persona-template", text: "Persona definition and instructions" }),
+        templateTokens,
+      ]),
       el("p", {
         id: "rp-persona-template-help",
         class: "rp-help",
@@ -166,16 +191,18 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     form,
     error,
     nameInput,
+    allowEmptyName: Boolean(persona?.isDefault),
     requiredMessage: "A persona name is required.",
     buildPayload: (name) => ({
-      id: persona?.id || `persona_${Date.now()}`,
-      name,
+      id: persona?.id || `persona_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: name || (persona?.isDefault ? "You" : name),
       description: descInput.value.trim(),
       gender: genderSelect.value || undefined,
+      pronouns: pronounsInput.value.trim() || undefined,
       template: templateInput.value,
       avatar: avatar || undefined,
     }),
-    successToast: (name) => `Persona "${name}" saved.`,
+    successToast: (name) => `Persona "${name || "You"}" saved.`,
     errorPrefix: "Could not save the persona",
     onSave,
     host,

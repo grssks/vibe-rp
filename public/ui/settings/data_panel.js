@@ -86,6 +86,21 @@ export function mountDataPanel(root, options = {}) {
         );
       }
 
+      if (typeof navigator !== "undefined" && typeof navigator.storage?.estimate === "function") {
+        try {
+          const est = await navigator.storage.estimate();
+          if (est?.quota > 0) {
+            const pct = Math.min(100, Math.round(((est.usage || 0) / est.quota) * 100));
+            statsWrap.append(
+              el("div", { class: "rp-storage-stat" }, [
+                el("span", { class: "rp-storage-stat__label", text: "Storage quota" }),
+                el("span", { class: "rp-badge rp-tnum", text: `${formatBytes(est.usage || 0)} / ${formatBytes(est.quota)} (${pct}%)` }),
+              ])
+            );
+          }
+        } catch { /* ignore unavailable quota API */ }
+      }
+
       if (typeof stats.persisted === "boolean") {
         statsWrap.append(
           el("div", { class: "rp-storage-stat" }, [
@@ -132,6 +147,25 @@ export function mountDataPanel(root, options = {}) {
     text: "Import a backup file",
   });
 
+  const excludeSecretsCheckbox = el("input", {
+    type: "checkbox",
+    id: "rp-data-exclude-secrets",
+  });
+
+  const excludeSecretsRow = el("label", { class: "rp-check", attrs: { for: "rp-data-exclude-secrets" } }, [
+    excludeSecretsCheckbox,
+    el("span", { text: "Exclude API keys and session tokens from backup" }),
+  ]);
+
+  const restoreModeSelect = el("select", {
+    id: "rp-data-restore-mode",
+    class: "rp-select",
+    attrs: { "aria-label": "Backup restore mode" },
+  }, [
+    el("option", { value: "merge", text: "Merge into existing data (keep current, overwrite ID collisions)" }),
+    el("option", { value: "replace", text: "Replace existing data (wipe & restore)" }),
+  ]);
+
   const backupActions = el("div", { class: "rp-actions-row" }, [
     exportBtn,
     importBtn,
@@ -141,6 +175,11 @@ export function mountDataPanel(root, options = {}) {
   const backupSection = el("div", { class: "rp-field" }, [
     el("span", { class: "rp-label", text: "Backup and restore" }),
     backupNotice,
+    excludeSecretsRow,
+    el("div", { class: "rp-field" }, [
+      el("label", { class: "rp-label", for: "rp-data-restore-mode", text: "Restore mode" }),
+      restoreModeSelect,
+    ]),
     backupActions,
   ]);
 
@@ -225,10 +264,11 @@ export function mountDataPanel(root, options = {}) {
   unsubs.push(
     on(exportBtn, "click", async () => {
       try {
-        const cookies = readBrowserCookies();
-        const backup = await LocalDb.exportAllData({ cookies });
+        const excludeSecrets = Boolean(excludeSecretsCheckbox.checked);
+        const cookies = excludeSecrets ? [] : readBrowserCookies();
+        const backup = await LocalDb.exportAllData({ cookies, excludeSecrets });
         const name = downloadBackupFile(backup);
-        showToast(`Exported full backup (${name}).`, "success");
+        showToast(`Exported ${excludeSecrets ? "sanitized" : "full"} backup (${name}).`, "success");
       } catch (err) {
         showToast(`Export failed: ${err.message}`, "error");
       }
@@ -272,15 +312,22 @@ export function mountDataPanel(root, options = {}) {
         if (payload.format === "vibe-rp-full-backup") {
           const cardsCount = payload.data?.indexedDb?.cards?.length || 0;
           const sessionsCount = payload.data?.indexedDb?.sessions?.length || 0;
+          const restoreMode = restoreModeSelect.value === "replace" ? "replace" : "merge";
 
           const ok = await confirm({
             title: "Restore full backup?",
-            body: `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. Existing matching items will be updated.`,
-            confirmLabel: "Merge and restore",
+            body:
+              restoreMode === "replace"
+                ? `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. All existing browser data will be replaced.`
+                : `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. Existing matching items will be updated.`,
+            confirmLabel: restoreMode === "replace" ? "Replace and restore" : "Merge and restore",
           });
           if (!ok) return;
 
-          const result = await LocalDb.importAllData(payload, { mode: "merge" });
+          if (restoreMode === "replace") {
+            await LocalDb.clearAll();
+          }
+          const result = await LocalDb.importAllData(payload, { mode: restoreMode });
           if (Array.isArray(result.cookies) && result.cookies.length) {
             restoreBrowserCookies(result.cookies);
           }
@@ -419,6 +466,7 @@ export function mountDataPanel(root, options = {}) {
       LocalDb.clearImportSession();
       clearBrowserCookies();
       await renderStats();
+      onDataChanged?.();
       showToast("Import session and cookies cleared.", "success");
     })
   );

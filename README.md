@@ -47,7 +47,7 @@ Most chat interfaces are built for short Q&A exchanges and treat a long story as
 | --- | --- |
 | **Where does my data live?** | Locally in your browser. Character cards and chat sessions are stored in `IndexedDB`; personas, system directives, and settings live in `localStorage`. |
 | **Does it work in any language?** | Yes. The built-in craft directive, default persona, and adaptive turn guidance automatically follow the language of your turns, your custom Persona/Directives, or the character preset's scene — with zero manual prompt editing required. |
-| **How does it handle long stories?** | Older turns are summarized into a structured `[Cast]` / `[State]` / `[Threads]` / `[Timeline]` continuity ledger rather than dropped. If the summarizer is unreachable, a deterministic extractive digest preserves continuity until the next fold. |
+| **How does it handle long stories?** | Older turns are summarized into a structured `## Cast` / `## Timeline` / `## World` / `## Threads` / `## Voice` continuity ledger rather than dropped. If the summarizer is unreachable, a deterministic extractive digest preserves continuity until the next fold. |
 | **How does it keep API costs low?** | Requests use a byte-stable system prefix, append-only message history, 4-breakpoint `cache_control` markers for providers that support explicit caching, `reasoning_effort: "low"` on auxiliary calls, and compaction timed only when the uncached tail is worth folding. |
 | **Can I inspect what is sent to the model?** | Yes. The **Context** sheet breaks down the next request token by token (system prefix, persona, dynamic lore, ledger, history, reply ceiling) and tracks actual provider-billed usage and prompt-cache hit rates. |
 | **What happens if a request fails mid-turn?** | Your turn is never lost. Failed generations roll back only the empty assistant placeholder and leave a durable **Retry reply** button on your turn that survives page reloads. |
@@ -68,7 +68,7 @@ Open `http://localhost:3000` in your browser, open **Settings**, configure your 
 Because the app is a zero-build static SPA (`bun run build` is a no-op), deploying it to production simply means serving `public/` on any static host (such as Vercel, Cloudflare Pages, or a local web server).
 
 ```bash
-bun test          # run the full test suite (858 tests across 38 files)
+bun test          # run the full test suite (945 tests across 42 files)
 bun run eval      # run the offline deterministic prompt & token budget evaluator
 ```
 
@@ -80,20 +80,21 @@ bun run eval      # run the offline deterministic prompt & token budget evaluato
 
 Open **Settings → Engine** from either the library or an active chat:
 
-1. **API Endpoint**: Enter any OpenAI-compatible base URL (for example `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `https://api.deepseek.com/v1`, or a local server like `http://localhost:11434/v1` for Ollama or `http://localhost:1234/v1` for LM Studio).
-2. **API Key**: Enter your provider key (stored locally in `localStorage`; leave blank for local servers that do not require authentication).
-3. **Model**: Type the model ID directly or click **Fetch Models** when your provider exposes `GET /models`.
+1. **Connection Profiles & Testing**: Save multiple endpoint/key/model presets, switch between them, or click **Test connection** to verify reachability before starting a turn.
+2. **API Endpoint**: Enter any OpenAI-compatible base URL (for example `https://api.openai.com/v1`, `https://openrouter.ai/api/v1`, `https://api.deepseek.com/v1`, or a local server like `http://localhost:11434/v1` for Ollama or `http://localhost:1234/v1` for LM Studio).
+3. **API Key**: Enter your provider key (stored locally in `localStorage`; leave blank for local servers that do not require authentication).
+4. **Models**: Pick from **Fetch Models** or enter custom model IDs for the primary story model, Choice Mode model, and Recap model, and inspect or clear learned per-model limits.
 
-All parameter changes apply immediately to the next turn with no separate save step.
+All parameter changes (via sliders or direct numeric inputs) apply immediately to the next turn with no separate save step.
 
-### 2. Importing Character Cards
+### 2. Importing & Creating Character Cards
 
-From the character library (`/`), click **Import** to add characters from:
+From the character library (`/`), click **+ New character** to open the built-in **Character Card Studio**, or **Import character** (supporting multi-file batch selection and drag-and-drop) to add characters from:
 - **Images with embedded metadata**: Character Card `.png` and `.webp` files (`chara` chunk).
 - **JSON / JSONC files**: Character Card v1, v2, and v3 specifications.
 - **Direct URLs**: Paste a link to a raw card file or supported character page.
 
-Cards support full **Lorebooks / Character Books** (both constant world lore and keyword-triggered dynamic lore) as well as **multi-character ensemble casts** (`extensions.group.members` / `characters` / `cast`).
+Cards support full **Lorebooks / Character Books** (both constant world lore and keyword-triggered dynamic lore), **Favorites** pinning/sorting, **Edit**, **Duplicate**, **Export JSON / Export PNG**, and **multi-character ensemble casts** (`extensions.group.members` / `characters` / `cast`).
 
 ### 3. Personas, Directives & Language Adaptation
 
@@ -109,16 +110,17 @@ Vibe RP cleanly separates three narrative layers so you can mix and match any pe
 - Substitutes standard character placeholders: `{{user}}`, `{{user_name}}`, `{{char}}`, and `{{char_name}}` across greetings, alternate greetings, and card definitions.
 - Expands JanitorAI and roleplay pronoun macros: `{{sub}}` (subject: he/she/they/it), `{{obj}}` (object: him/her/them/it), `{{poss}}` (possessive adjective: his/her/their/its), `{{possp}}` (possessive pronoun: his/hers/theirs/its), and `{{ref}}` (reflexive: himself/herself/themselves/itself).
 - Strict case preservation: Macro casing (`{{sub}}`, `{{Sub}}`, `{{SUB}}`) resolves with matching capitalization (`they`, `They`, `THEY`). Single-brace (`{obj}`) and angle-bracket (`<poss>`) variants are also supported.
-- Persona gender & pronoun configuration: Personas offer an explicit selector (`Male`, `Female`, `Neutral`, `Neuter`, or `Auto-detect`). When set to auto-detect, pronouns are inferred from the persona's description or template using multilingual markers across English, Japanese, Chinese, Spanish, Portuguese, French, German, Indonesian, and Russian.
+- Persona gender & pronoun configuration: Personas offer an explicit selector (`Male`, `Female`, `Neutral`, `Neuter`, or `Auto-detect`) plus an optional **Custom pronouns** field accepting slash-separated forms (such as `they/them/their/theirs/themself` or `ze/hir/hirs`). You can also override personas and directives per session, view live token counts, and duplicate saved presets.
 
 **Automatic Cross-Lingual & Preset Adaptation**:
 - If you import a character preset written in Indonesian, Japanese, Spanish, or any other language and use the built-in default directive and persona, the model automatically writes in the preset's scene language.
 - If you play an English character preset using a Persona, System Directive, or user turn written in another language (such as Indonesian), the engine detects the cross-lingual shift and instructs the model at both the system prefix and the generation tail to write `{{char}}`'s entire reply (narration and dialogue) in your active language. Once the assistant switches languages, the extra tail reminder automatically turns off to save tokens.
 ### 4. Writing, Editing, Forking & Search
 
-- **Live token estimates**: Both the message composer and every turn in the feed display live token estimates (`~bytes/4` with CJK script awareness).
-- **Non-destructive editing**: Editing a message creates a new revision in place while preserving previous drafts in `msg.forks[]`, which you can cycle through at any time.
-- **Rerolling & Continuing**: Regenerate the latest assistant turn or prompt the character to continue from the last beat.
+- **Live token estimates & draft autosave**: Both the message composer and every turn in the feed display live token estimates (`~bytes/4` with CJK script awareness), and unsent drafts auto-save per session.
+- **Non-destructive editing & `< 1 / N >` forks**: Editing a message, rerolling, or switching alternate greetings stores revisions in `msg.forks[]`, which you can cycle directly from `< 1 / N >` controls on the message header.
+- **Collapsible reasoning blocks**: Model `<think>` / `reasoning_content` streams live and settles into a collapsible `<details>` block above the prose.
+- **Stop, Continue & Rewind**: Clicking **Stop** preserves any partial reply streamed so far; **Continue** resumes from the end of the last assistant turn; **Rewind here** trims trailing turns with an Undo toast.
 - **Forking a session**: Branch the story from any turn into an independent session without altering the original timeline.
 - **Full-transcript search**: Press <kbd>Ctrl</kbd>+<kbd>F</kbd> (or <kbd>Cmd</kbd>+<kbd>F</kbd>) inside a chat to search across the entire session transcript, including messages outside the currently rendered viewport.
 
@@ -139,22 +141,24 @@ Assistant reply completes
 - **Dialogue Preservation & Resilient Parsing**: Punctuation stripping uses balanced delimiter tracking (`isWrappedBy`) to strip only true outer enclosing quotes or brackets (including CJK lenticular/angle brackets `【】`, `〈〉`, `〔〕`, and low-9 quotes `„“`) while strictly preserving internal spoken dialogue quotes. The parser extracts valid choice menus from raw JSON, codeblocks, JSON with trailing commas or comments, newline-delimited JSON (NDJSON), and formatted markdown lists.
 - **Optional Steering**: Before generating or refreshing choices, you can type a brief direction into the steer field (e.g., *"ask about the locked drawer"* or *"refuse politely and leave"*) to focus the generated options.
 - **Zero transcript pollution**: Generated choice menus are never injected into the roleplay prompt. Selecting a choice submits its prose as an ordinary `user` turn, keeping the main RP prompt 100% cache-compatible.
-- **Lightweight auxiliary call**: Choice generation sends only a compact context slice (character/persona summary, clipped ledger hint, and recent turns) with a tight output budget (`768` tokens) and `reasoning_effort: "low"` so it returns quickly and cheaply even on 10K-token cards.
+- **Lightweight auxiliary call**: Choice Mode shares the main prompt prefix when using the same model within budget, and routes to a compact context slice (character/persona summary, clipped ledger hint, and recent turns) when using a separate `choiceModel` or under tight windows — requesting `response_format: { type: "json_object" }` with `reasoning_effort: "low"` and automatic fallback if a provider rejects it.
+- **Inline preview, editing & manual generation**: Choice cards display full-prose previews inline, offer an **Edit** button to drop a choice into the composer before sending, and show a **Generate choices** button when idle.
 - **Persisted across reloads**: Active choices are saved with the session in `IndexedDB` and restored without re-fetching when you reopen the chat.
 ### 6. The Context Sheet
 
 Click the **Context** button in the chat header to inspect the exact structure and token cost of your session:
 
-- **Next Request Breakdown**: Shows the exact token allocation for the upcoming turn across **Required Static** (directive + core character fields), **Optional Static** (example dialogue + constant lore), **Persona**, **Dynamic Lore & Guidance**, **Continuity Ledger**, **Conversation History**, **Current Input**, and **Reserved Reply Ceiling**.
-- **Provider Telemetry & Cache Trend**: Displays what your API provider actually billed on the last turn (`prompt_tokens`, `completion_tokens`, and cached tokens) alongside a multi-turn **Cache Reuse Trend**.
+- **Next Request Breakdown**: Shows the exact token allocation for the upcoming turn across **Required Static** (directive + core character fields), **Optional Static** (example dialogue + constant lore), **Persona**, **Dynamic Lore & Guidance** (including active `matchedLore` entry names), **Continuity Ledger**, **Conversation History**, **Current Input** (including your live composer draft), and **Reserved Reply Ceiling**.
+- **Interactive Scene Memory & Export**: Edit the per-session **Author's Note** or **Continuity recap** directly, trigger **Fold now** or **Rebuild recap**, and export the transcript as **Markdown (`.md`)** or **JSON (`.json`)** (also available per thread in the History modal).
+- **Provider Telemetry & Cache Trend**: Displays what your API provider actually billed on the last turn (`prompt_tokens`, `completion_tokens`, and cached tokens), notices when the continuity ledger was truncated (`ledgerTruncated`) or when the model ignores `max_tokens` (`ignoresMaxTokens`), and tracks a multi-turn **Cache Reuse Trend**.
 - **Setup-Scoped History**: Because changing the model, card, persona, or system directive naturally invalidates the prompt prefix on the next turn, cache hit trends are scoped to the specific setup that produced them, and providers that do not report cache metrics are shown as a gap rather than a false `0%`.
 
 ### 7. Backups & Data Management
 
 Under **Settings → Data**, you can:
-- **Export a full backup**: Downloads a single JSON snapshot of all cards, sessions, personas, directives, and settings. *(Note: Full backups include your API keys and session tokens in plaintext — treat exported backup files as secrets.)*
-- **Restore from backup**: Safely imports a snapshot, filtering strictly on the app's storage namespace (`vibe_rp_*`).
-- **Granular resets**: Clear only chat sessions, reset personas/directives to defaults, or wipe all local data. Destructive actions in the UI provide an undo toast rather than blocking browser alerts.
+- **Export a backup**: Downloads a JSON snapshot of all cards, sessions, personas, directives, and settings, with an **Exclude API keys and session tokens** option when sharing backups. *(Full backups without exclusion include your API keys and session tokens in plaintext — treat them as secrets.)*
+- **Restore from backup**: Choose between **Merge** (preserve existing data, overwrite ID collisions) and **Replace** (wipe and restore), filtering strictly on the app's storage namespace (`vibe_rp_*`).
+- **Storage quota & granular resets**: View disk usage and browser storage quota, clear only chat sessions, reset personas/directives to defaults, or wipe all local data. Destructive actions in the UI provide an undo toast rather than blocking browser alerts.
 
 ---
 
@@ -174,17 +178,18 @@ Under **Settings → Data**, you can:
           ┌──────────┴──────────┐
           ▼                     ▼
   BrowserChatEngine          LocalDb
-   (context_plan.js,          (IdbStore + LocalStore)
-    prompt_adaptive.js,         │
-    model_capability.js)  ┌─────┴──────────┐
-          │               ▼                ▼
-          │           IndexedDB       localStorage
-          │        cards, sessions  presets, settings
+   (prompt_builder.js,        (IdbStore + LocalStore)
+    llm_transport.js,           │
+    ledger_manager.js,    ┌─────┴──────────┐
+    context_plan.js,      ▼                ▼
+    prompt_adaptive.js, IndexedDB     localStorage
+    model_capability.js) cards,        presets, settings
+          │              sessions
           ▼
   OpenAI-compatible endpoint (SSE stream)
 ```
 
-All core modules (`BrowserChatEngine`, `SessionController`, `LocalDb`, `context_plan.js`, `prompt_adaptive.js`, `session_state.js`, `usage_history.js`, `choice_format.js`) are completely DOM-free (`document` and `window` are never referenced at module scope), allowing the entire turn, compaction, and allocation pipeline to be tested deterministically in Bun.
+All core modules (`BrowserChatEngine`, `prompt_builder.js`, `llm_transport.js`, `ledger_manager.js`, `SessionController`, `LocalDb`, `context_plan.js`, `prompt_adaptive.js`, `session_state.js`, `usage_history.js`, `choice_format.js`) are completely DOM-free (`document` and `window` are never referenced at module scope), allowing the entire turn, compaction, and allocation pipeline to be tested deterministically in Bun.
 
 ### Four-Rule Context Management
 
@@ -201,19 +206,20 @@ Every roleplay request is assembled according to four rules in strict precedence
 
 Rather than using arbitrary per-section token caps, `planRequest` measures every candidate section and runs a single allocator (`allocateContext` in `public/context_plan.js`):
 
-1. **Required content is protected**: The craft directive, core character identity (`name`, `system_prompt`, `description`, `personality`, `scenario`), user persona, cognitive-layer framing, current user turn, and active scene guidance are never dropped.
+1. **Required content is protected**: The craft directive (automatically using `COMPACT_AGENTS_CONTRACT` for the built-in default directive on `<= 4096`-token windows), core character identity (`name`, `system_prompt`, `description`, `personality`, `scenario`), user persona, cognitive-layer framing, current user turn, and active scene guidance are never dropped.
 2. **Degradable static content yields under pressure**: If the configured context window is tight, example dialogue (`mes_example`) yields first, followed by ensemble cast details and constant world lore.
 3. **Output ceiling adapts**: `maxTokens` is granted in full whenever room allows and scales down to a viable floor (`256` tokens) only when required content crowds the window.
 4. **History and dynamic lore take the remaining budget**: Keyword-matched lorebook entries are ranked by distinct key hits against the current turn, recent tail, and stored ledger (capped at 6 entries per turn), and conversation history fills the remaining capacity.
-5. **Post-assembly verification & overflow recovery**: If a provider rejects a request because its actual context limit is smaller than `maxContextTokens`, the engine parses the provider's error, learns the true window in `model_capability.js`, and automatically re-plans and retries the turn once.
+5. **Post-assembly verification & tokenizer calibration**: `model_capability.js` separates fixed provider preamble overhead from tokenizer-ratio scaling (`promptTokenRatio`) across varying turn sizes, and if a provider rejects a request for exceeding its real context limit, the engine learns the true window and automatically re-plans and retries the turn once.
 
 ### Rolling Continuity Ledger
 
-When compaction runs, `BrowserChatEngine` summarizes evicted turns into four fixed markdown sections:
-- `[Cast]` — Who is present, their core disposition, and how recent events have shifted their state or trust.
-- `[State]` — Current physical location, time/weather, injuries, inventory, and immediate physical posture.
-- `[Threads]` — Unresolved promises, secrets, suspicions, and active objectives.
-- `[Timeline]` — Causal sequence of key beats already settled in canon.
+When compaction runs, `BrowserChatEngine` (via `public/ledger_manager.js`) summarizes evicted turns into five markdown sections:
+- `## Cast` — Who is present or absent, role/voice, witnessed/told knowledge scope, and core identity vs. shifting state/trust with the event that caused it.
+- `## Timeline` — Chronological events and concrete outcomes.
+- `## World` — Places, factions, objects, and rules as they now stand after story alterations.
+- `## Threads` — Open promises, plans, tensions, emotional wounds, fatigue, and carrying consequences.
+- `## Voice` — Active language, dialect, POV, tense, psychic distance, and rhythm.
 
 If the LLM summarizer returns a truncated/empty response, the engine retries once with a larger output allowance; if the endpoint is unreachable, it falls back to a deterministic extractive digest so turns are never silently lost. Editing or deleting a message already covered by the ledger automatically resets the ledger (with undo support on message deletion) so deleted events are never fed back as canon.
 
@@ -224,12 +230,12 @@ On every turn, `public/prompt_adaptive.js` runs zero-cost local heuristics over 
 - **Turn Scope & Epistemic Boundary**: Anchors the reply to `{{char}}` in `{{user}}`'s active language, opening directly on `{{char}}`'s response and bounding perception strictly to what `{{char}}` can see or hear from their current physical position.
 - **Persona Core vs. Earned State (`reinject`)**: Periodically reminds the model of `{{char}}`'s core traits while allowing their emotional state and trust to evolve from story events.
 - **Narrative Lock (`lock`)**: Detects the established POV (`first`, `second`, or `third` person) and tense (`past` or `present`) after 2+ turns and locks them in.
-- **Cross-Lingual Adaptation (`languageShift`)**: Fires automatically whenever a non-English turn, Persona, Directive, or preset scene meets an English greeting or reply, and turns off once the model is replying in the target language.
-- **Prose Tic & Echo Suppression**: Detects repetitive paragraph openings, stock phrase clusters, monologue bloat, dialogue-less turns, trailing questions to the player, or player-voice bleed (`puppet`), emitting targeted corrections sorted by recency priority.
+- **Cross-Lingual Adaptation (`languageShift`)**: Uses authority-ordered multi-script language detection (`user` turn > Persona > Directives > Card) to switch seamlessly when your active language differs from the assistant's latest reply, and turns off once the model replies in the target language.
+- **Narration-Only Prose Tic & Echo Suppression**: Strips quoted speech across scripts before scanning for repetitive paragraph openings, stock phrase clusters, monologue bloat, dialogue-less turns, trailing questions to the player, or player-voice bleed (`puppet`), emitting targeted corrections ranked by recency and keep priority.
 
 ### Cost Efficiency & Prompt Caching
 
-- **4-Breakpoint Rolling Cache**: For endpoints supporting explicit cache control (Anthropic, OpenRouter), `applyCacheControl` places up to 4 `cache_control: { type: "ephemeral" }` breakpoints across: (1) the static system prompt, (2) the folded continuity ledger, (3) a quantized 6-message stepping boundary in warm history, and (4) the penultimate turn.
+- **4-Breakpoint Rolling Cache**: For endpoints supporting explicit cache control (Anthropic, OpenRouter), `withCacheBreakpoints` places up to 4 `cache_control: { type: "ephemeral" }` breakpoints across: (1) the static system prompt, (2) the folded continuity ledger, (3) the prior frozen turn (`tailMark - 2`), and (4) the penultimate frozen turn (`tailMark`, stepping back past synthetic `[Writing Guidance:` messages).
 - **Reasoning Budget Caps on Auxiliary Calls**: Background summarization, ledger compression, and Choice Mode requests pass `reasoning_effort: "low"` (stripped automatically if a provider rejects the field, and remembered in `model_capability.js`), preventing reasoning models from burning thousands of hidden thinking tokens on background tasks.
 
 ---
@@ -291,10 +297,13 @@ All frontend code under `public/` uses standard ES modules with zero bundling re
 
 ```text
 public/
-  browser_engine.js     Prompt assembly, four context rules, SSE streaming, ledger folding
+  browser_engine.js     Engine facade: turn orchestration, re-exports, choice generation
+  prompt_builder.js     System section classification, lorebook gating, request & choice planners
+  llm_transport.js      HTTP POST retry loop, SSE streaming, usage parsing, body builders
+  ledger_manager.js     Continuity ledger prompts, summarization, compression, extractive digest
   context_plan.js       Pure context planning: token estimation, budgets, allocateContext()
   prompt_adaptive.js    Adaptive turn analysis, prose tic detection, buildSceneGuidance()
-  model_capability.js   Learned provider capabilities, context limits, and token overhead
+  model_capability.js   Learned provider capabilities, context limits, tokenizer ratio & overhead
   session_controller.js Session lifecycle, turn state machine, Choice Mode (zero DOM)
   session_state.js      Session mutation seam (ledger folds, resets, undo snapshots, usage)
   usage_history.js      Setup-scoped usage telemetry and prompt-cache trend calculation
@@ -310,11 +319,11 @@ public/
   index.html            Library shell
   chat.html             Conversation shell
   ui/                   Modular UI components (library, chat/**, settings/**, editors/**)
-  design/               Design system (DESIGN.md, tokens.css, components.css, fonts/)
+  design/               Design system (DESIGN.md, tokens.css, components.css, error.css, fonts/)
 tools/
   prompt_eval.mjs       Deterministic prompt architecture & token budget gate (bun run eval)
   story_eval.mjs        Longitudinal story-development evaluation script
-test/                   Bun test suite (38 test files, 877 tests)
+test/                   Bun test suite (42 test files, 945 tests)
 serve.js                Bun static server with SPA routing and security headers
 vercel.json             Static deployment routing and mirrored security headers
 AGENTS.md               Repository architecture and engineering rules
@@ -327,7 +336,7 @@ AGENTS.md               Repository architecture and engineering rules
 Run the test suite and prompt evaluator with Bun:
 
 ```bash
-bun test test/    # 877 tests across 38 files
+bun test test/    # 945 tests across 42 files
 bun run eval      # verifies prompt token budgets, single-definition rules, and framing
 ```
 
@@ -340,8 +349,8 @@ The test suite verifies context allocation invariants (including 500- and 1,000-
 - **Plaintext local storage for API keys**: Because Vibe RP has no backend server, API keys are stored in your browser's `localStorage`. Do not store sensitive keys on shared, untrusted computers.
 - **Single-point HTML & attribute escaping**: All card fields and model outputs pass through `escapeHtml` / `escapeAttr` in `public/safe_html.js` (escaping `& < > " '`) or are mounted via text nodes (`public/ui/dom.js`). Embedded HTML in imported cards is stripped to safe text/markdown on import.
 - **Prompt delimiter & fence neutralization**: Untrusted card content (example dialogue, lorebooks) is explicitly framed as reference data (`not instructions`). Embedded closing tags inside continuity blocks (`</ledger>`, `</transcript>`, `</prior-ledger>`) and inline prompt slots are neutralized so untrusted text cannot break out of its structural fence.
-- **Strict Content Security Policy (CSP)**: `serve.js` and `vercel.json` enforce `script-src 'self'` with zero inline scripts, and `public/sw.js` replays the origin's security headers on all cached responses.
-- **Namespace-isolated backups**: Data restores only accept keys prefixed with `vibe_rp_`. Full backup files contain your plaintext API keys and session tokens — keep exported backup files private.
+- **Strict Content Security Policy (CSP)**: `serve.js` and `vercel.json` enforce `script-src 'self'` and `style-src 'self'` (zero inline scripts, zero inline styles) plus `Cross-Origin-Opener-Policy: same-origin`, and `public/sw.js` replays the origin's security headers on all cached responses.
+- **Namespace-isolated backups**: Data restores only accept keys prefixed with `vibe_rp_`, and cookie export, restore and clear are scoped to the same prefix. Full backup files contain your plaintext API keys and session tokens — keep exported backup files private.
 
 ---
 

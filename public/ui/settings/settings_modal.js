@@ -38,19 +38,31 @@ function sliderRow({ id, valueId, label, hint, min, max, step, value }) {
       el("label", { class: "rp-label", for: id, text: label }),
       el("span", { class: "rp-badge rp-badge--count rp-tnum", id: valueId, text: String(value) }),
     ]),
-    el("input", { type: "range", id, class: "rp-range", min, max, step, value }),
+    el("div", { class: "rp-slider-row" }, [
+      el("input", { type: "range", id, class: "rp-range", min, max, step, value }),
+      el("input", {
+        type: "number",
+        id: `${id}-num`,
+        class: "rp-input rp-slider-row__num rp-tnum",
+        min,
+        max,
+        step,
+        value,
+        attrs: { "aria-label": `${label} numeric value` },
+      }),
+    ]),
     el("p", { class: "rp-help", text: hint }),
   ]);
 }
 
 const PARAM_FIELDS = [
-  sliderRow({ id: "popup-slider-temp", valueId: "popup-val-temp", label: "Temperature", hint: "Lower is focused and deterministic; higher is creative and descriptive.", min: 0.1, max: 2, step: 0.05, value: 0.95 }),
+  sliderRow({ id: "popup-slider-temp", valueId: "popup-val-temp", label: "Temperature", hint: "Lower is focused and deterministic; higher is creative and descriptive.", min: 0, max: 2, step: 0.05, value: 0.95 }),
   sliderRow({ id: "popup-slider-topp", valueId: "popup-val-topp", label: "Top P", hint: "Nucleus sampling: considers only the top P probability mass. 1 sends the provider default.", min: 0.1, max: 1, step: 0.05, value: 1 }),
   sliderRow({ id: "popup-slider-minp", valueId: "popup-val-minp", label: "Min P", hint: "Trims low-probability noise without truncating creative tails. 0 sends the provider default.", min: 0, max: 0.5, step: 0.01, value: 0 }),
-  sliderRow({ id: "popup-slider-tokens", valueId: "popup-val-tokens", label: "Max response tokens", hint: "The longest reply the model may write each turn. 1200 leaves room for a full reply plus the model's own thinking.", min: 200, max: 4096, step: 50, value: 1200 }),
+  sliderRow({ id: "popup-slider-tokens", valueId: "popup-val-tokens", label: "Max response tokens", hint: "The longest reply the model may write each turn. 1200 leaves room for a full reply plus the model's own thinking.", min: 64, max: 8192, step: 64, value: 1200 }),
   sliderRow({ id: "popup-slider-freq", valueId: "popup-val-freq", label: "Frequency penalty", hint: "Higher values reduce repetitive verbal tics. 0 sends the provider default.", min: -2, max: 2, step: 0.05, value: 0 }),
   sliderRow({ id: "popup-slider-pres", valueId: "popup-val-pres", label: "Presence penalty", hint: "Encourages new topics and vocabulary. 0 sends the provider default.", min: -2, max: 2, step: 0.05, value: 0 }),
-  sliderRow({ id: "popup-slider-context", valueId: "popup-val-context", label: "Context window", hint: "How much the model can hold at once. Match your model's real window; older turns are summarized into a recap once this fills. Lowering it mid-chat makes the model re-read the whole conversation once.", min: 2048, max: 131072, step: 2048, value: 65536 }),
+  sliderRow({ id: "popup-slider-context", valueId: "popup-val-context", label: "Context window", hint: "How much the model can hold at once. Match your model's real window; older turns are summarized into a recap once this fills. Lowering it mid-chat makes the model re-read the whole conversation once.", min: 2048, max: 262144, step: 1024, value: 65536 }),
 ];
 
 const TABS = [
@@ -87,6 +99,15 @@ export function openSettingsModal(options = {}) {
       "Connect any OpenAI-compatible completions API. The base URL, key, and model are yours to fill in; settings stay in this browser."
     ),
     el("div", { class: "rp-field" }, [
+      el("label", { class: "rp-label", for: "popup-profile-select", text: "Connection profiles" }),
+      el("div", { class: "rp-settings__inline-actions" }, [
+        el("select", { id: "popup-profile-select", class: "rp-select" }),
+        el("button", { type: "button", id: "popup-save-profile-btn", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Save profile" }),
+        el("button", { type: "button", id: "popup-delete-profile-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Delete" }),
+        el("button", { type: "button", id: "popup-test-conn-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Test connection" }),
+      ]),
+    ]),
+    el("div", { class: "rp-field" }, [
       el("label", { class: "rp-label", for: "popup-api-endpoint", text: "API base URL" }),
       el("input", { type: "text", id: "popup-api-endpoint", class: "rp-input", placeholder: "https://api.example.com/v1" }),
       el("p", { class: "rp-help", text: "The base URL of your provider, ending in /v1." }),
@@ -99,7 +120,7 @@ export function openSettingsModal(options = {}) {
     el("div", { class: "rp-field" }, [
       el("div", { class: "rp-settings__list-head" }, [
         el("label", { class: "rp-label", for: "popup-model-select", text: "Primary story model" }),
-        el("div", { style: "display: flex; gap: var(--space-2);" }, [
+        el("div", { class: "rp-settings__inline-actions" }, [
           el("button", { type: "button", id: "popup-custom-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
           el("button", { type: "button", id: "popup-fetch-models-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Fetch models" }),
         ]),
@@ -117,11 +138,23 @@ export function openSettingsModal(options = {}) {
     el("div", { id: "popup-choice-model-wrap", class: "rp-field" }, [
       el("label", { class: "rp-label", for: "popup-choice-model-select", text: "Choice generator model" }),
       el("select", { id: "popup-choice-model-select", class: "rp-select" }),
+      el("input", {
+        type: "text",
+        id: "popup-choice-model-input",
+        class: "rp-input",
+        placeholder: "Or type custom choice model ID (optional)",
+      }),
       el("p", { class: "rp-help", text: "Dedicated model for generating Choice Mode options. Defaults to main model." }),
     ]),
     el("div", { class: "rp-field" }, [
       el("label", { class: "rp-label", for: "popup-summary-model-select", text: "Recap model" }),
       el("select", { id: "popup-summary-model-select", class: "rp-select" }),
+      el("input", {
+        type: "text",
+        id: "popup-summary-model-input",
+        class: "rp-input",
+        placeholder: "Or type custom recap model ID (optional)",
+      }),
       el("p", { class: "rp-help", text: "Writes the recap that older turns are summarized into. It reads and merges rather than writing prose, so a cheaper model usually does it well. Defaults to main model." }),
     ]),
     el("div", { class: "rp-field" }, [
@@ -143,8 +176,9 @@ export function openSettingsModal(options = {}) {
       ]),
       el("p", { class: "rp-help", text: "A reasoning model works the scene out on its own, so the ask is skipped for it. Use Always for a small local model that benefits from being told to think." }),
     ]),
-    el("div", { class: "rp-field" }, [
+    el("div", { class: "rp-field", id: "popup-ClearCaps-wrap" }, [
       el("button", { type: "button", id: "popup-forget-limits-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Forget learned model limits" }),
+      el("div", { id: "popup-learned-limits-list", class: "rp-stack rp-stack--xs" }),
       el("p", { class: "rp-help", text: "The app keeps what this endpoint told it: the model's real context window, any hidden per-request preamble it bills, and which parameters it accepts or ignores. Clear that if you change endpoints under the same name, or if a limit was learned from a response that was not about this model." }),
     ]),
     // The session-import control is a library-only concern (it unlocks full
@@ -153,8 +187,9 @@ export function openSettingsModal(options = {}) {
     // import affordance it cannot service.
     ...(options.saveSession
       ? [
-          el("div", { class: "rp-field rp-settings__divider", id: "popup-import-session-wrap", hidden: true }, [
-            el("label", { class: "rp-label", for: "popup-import-session-input", text: "Import session" }),
+          el("details", { class: "rp-field rp-settings__divider rp-SessionImport", id: "popup-import-session-wrap" }, [
+            el("summary", { class: "rp-label", text: "Character-page import session (optional)" }),
+            el("p", { id: "popup-session-status", class: "rp-help", text: "No session imported." }),
             el("textarea", {
               id: "popup-import-session-input",
               class: "rp-textarea rp-textarea--mono",
@@ -162,8 +197,9 @@ export function openSettingsModal(options = {}) {
               placeholder: "Paste exported session cookies JSON",
             }),
             el("p", { class: "rp-help", text: "Grants access to fetch full character definitions from character pages. Treat it like a password." }),
-            el("div", {}, [
+            el("div", { class: "rp-settings__inline-actions" }, [
               el("button", { type: "button", id: "popup-save-import-session-btn", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Save session" }),
+              el("button", { type: "button", id: "popup-refresh-session-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Refresh token" }),
             ]),
           ]),
         ]
@@ -186,7 +222,7 @@ export function openSettingsModal(options = {}) {
       "Balance creative unpredictability against narrative coherence. Every value here is sent with the next request the moment you let go of the control."
     ),
     ...PARAM_FIELDS,
-    el("div", { style: "display: flex; justify-content: flex-end; margin-top: var(--space-3);" }, [
+    el("div", { class: "rp-settings__reset-row" }, [
       el("button", {
         type: "button",
         id: "popup-reset-params-btn",
@@ -291,6 +327,17 @@ export function openSettingsModal(options = {}) {
       await options.deletePersona?.(persona.id);
       return true;
     },
+    onClone: async (persona) => {
+      const clone = {
+        ...persona,
+        id: `persona_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: `${persona.name || "Persona"} (Copy)`,
+        isDefault: false,
+      };
+      await options.savePersona?.(clone);
+      await personas.refresh();
+      host?.toast?.(`Duplicated "${clone.name}".`, { tone: "success" });
+    },
     onSetDefault: (persona) => options.setDefaultPersona?.(persona.id),
     host,
   });
@@ -321,6 +368,18 @@ export function openSettingsModal(options = {}) {
       await options.deleteDirective?.(directive.id);
       return true;
     },
+    onClone: async (directive) => {
+      const clone = {
+        ...directive,
+        id: `directive_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: `${directive.name || "Prompt"} (Copy)`,
+        isDefault: false,
+        builtin: false,
+      };
+      await options.saveDirective?.(clone);
+      await directives.refresh();
+      host?.toast?.(`Duplicated "${clone.name}".`, { tone: "success" });
+    },
     onSetDefault: (directive) => options.setDefaultDirective?.(directive.id),
     host,
   });
@@ -344,7 +403,7 @@ export function openSettingsModal(options = {}) {
   refreshAll();
 
   let settled = false;
-  function close() {
+  function cleanup() {
     if (settled) return;
     settled = true;
     engine.destroy();
@@ -353,9 +412,11 @@ export function openSettingsModal(options = {}) {
     directives.destroy();
     data.destroy();
     tabs.destroy();
-    closeModal(dialog);
     dialog.remove();
     options.onClose?.();
+  }
+  function close() {
+    if (!closeModal(dialog)) cleanup();
   }
 
   dialog.querySelector(".rp-dialog__close").addEventListener("click", close);
@@ -372,11 +433,7 @@ export function openSettingsModal(options = {}) {
 
   openModal({
     element: dialog,
-    onClose: () => {
-      if (settled) return;
-      settled = true;
-      options.onClose?.();
-    },
+    onClose: cleanup,
     initialFocus: tablist.querySelector('[aria-selected="true"]'),
   });
 

@@ -179,13 +179,21 @@ export function createToastHost({ root = document.body, region: provided = null 
     return () => remove(id);
   }
 
+  function clear() {
+    for (const entry of live.values()) {
+      clearTimeout(entry.timer);
+      entry.node.remove();
+    }
+    live.clear();
+  }
+
   function destroy() {
     for (const id of Array.from(live.keys())) remove(id);
     region.remove();
     syncReservedBand(region);
   }
 
-  return { toast, dismiss, destroy, region };
+  return { toast, dismiss, clear, destroy, region };
 }
 
 /**
@@ -236,6 +244,7 @@ export function createNotifier({ region, status = null } = {}) {
   }
 
   function clear() {
+    host.clear();
     region.textContent = "";
     syncReservedBand(region);
     setStatus("");

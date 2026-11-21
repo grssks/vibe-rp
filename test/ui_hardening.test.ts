@@ -158,10 +158,13 @@ describe("the library seeds samples once, and marks them", () => {
 
 describe("the 404 page belongs to the design system", () => {
   const html = read("404.html");
+  const errorCss = read("design/error.css");
 
-  test("it reads the tokens and honours the reader's theme", () => {
+  test("it reads the tokens and external error stylesheet while honouring the theme", () => {
     expect(html).toContain("/design/tokens.css");
+    expect(html).toContain("/design/error.css");
     expect(html).toContain("/theme-boot.js");
+    expect(html).not.toMatch(/<style\b/i);
   });
 
   test("it carries no literal colour of its own", () => {
@@ -171,10 +174,11 @@ describe("the 404 page belongs to the design system", () => {
     const body = html.slice(html.indexOf("</head>"));
     expect(body).not.toMatch(/#[0-9A-Fa-f]{6}/);
     expect(html).not.toMatch(/background:\s*#/);
+    expect(errorCss).not.toMatch(/#[0-9A-Fa-f]{3,8}/);
   });
 
   test("the return control takes the touch floor", () => {
-    expect(html).toContain("min-height: var(--tap-min)");
+    expect(errorCss).toContain("min-height: var(--tap-min)");
   });
 });
 

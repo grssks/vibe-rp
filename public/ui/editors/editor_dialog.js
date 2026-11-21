@@ -23,6 +23,7 @@ export function openEditorDialog({
   host,
   onDialog = null,
   initialFocus = null,
+  allowEmptyName = false,
 }) {
   return new Promise((resolve) => {
     const dialog = el("dialog", { class: "rp-dialog", attrs: { "aria-labelledby": titleId } }, [
@@ -96,7 +97,7 @@ export function openEditorDialog({
     saveBtn.addEventListener("click", async () => {
       if (busy) return;
       const name = nameInput.value.trim();
-      if (!name) {
+      if (!name && !allowEmptyName) {
         showError(requiredMessage);
         nameInput.classList.add("is-invalid");
         nameInput.setAttribute("aria-invalid", "true");

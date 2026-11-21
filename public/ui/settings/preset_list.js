@@ -25,8 +25,11 @@ export function mountPresetList(root, options = {}) {
     },
   };
 
+  let destroyed = false;
+
   async function refresh() {
     const items = (await load?.()) || [];
+    if (destroyed) return;
     if (items.length === 0) {
       list.replaceChildren(
         el("div", { class: "rp-empty" }, [
@@ -40,11 +43,14 @@ export function mountPresetList(root, options = {}) {
   }
 
   const createBtn = options.createButton;
-  if (createBtn) createBtn.addEventListener("click", () => onCreate?.());
+  const onCreateClick = () => onCreate?.();
+  if (createBtn) createBtn.addEventListener("click", onCreateClick);
 
   return {
     refresh,
     destroy() {
+      destroyed = true;
+      if (createBtn) createBtn.removeEventListener("click", onCreateClick);
       root.replaceChildren();
     },
   };

@@ -2505,3 +2505,88 @@ dialog.rp-dialog:not([open]) {
     display: none;
   }
 }
+
+/* ========================================= CSP-SAFE UTILITY MODIFIERS == */
+
+.rp-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rp-help--warning {
+  color: var(--ink);
+  background-color: var(--warn-subtle);
+  border-left: 2px solid var(--warn);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.rp-settings__inline-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rp-settings__reset-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
+}
+
+.rp-thread-card {
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.rp-thread-card__title {
+  font-size: var(--text-base);
+}
+
+.rp-btn--xs {
+  min-height: 1.5rem;
+  padding: 0 var(--space-1-5, 0.375rem);
+  font-size: var(--text-xs);
+  line-height: 1.2;
+}
+
+.rp-slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.rp-slider-row .rp-range {
+  flex: 1;
+  min-width: 0;
+}
+
+.rp-slider-row__num {
+  width: 6.5rem;
+  flex: none;
+  text-align: end;
+}
+
+.rp-SessionImport > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.rp-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.rp-grid--2 {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.rp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+

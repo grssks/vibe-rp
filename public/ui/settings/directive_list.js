@@ -59,6 +59,14 @@ function buildRow(directive, handlers, existing) {
       text: "Edit",
       onclick: () => handlers.onEdit(directive),
     }),
+    handlers.onClone
+      ? el("button", {
+          type: "button",
+          class: "rp-btn rp-btn--ghost rp-btn--sm",
+          text: "Duplicate",
+          onclick: () => handlers.onClone(directive),
+        })
+      : null,
     directive.isDefault || directive.builtin
       ? null
       : el("button", {

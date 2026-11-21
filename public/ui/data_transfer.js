@@ -2,8 +2,15 @@
 //
 // Zero-backend client helpers for packaging and restoring the browser state.
 
+const COOKIE_PREFIX = "vibe_rp_";
+const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
+
+function secureSuffix() {
+  return globalThis.location?.protocol === "https:" ? "; Secure" : "";
+}
+
 /**
- * Reads all readable cookies from `document.cookie`.
+ * Reads app-owned (`vibe_rp_`-prefixed) cookies from `document.cookie`.
  * Returns an array of `{ name, value }` objects.
  */
 export function readBrowserCookies() {
@@ -15,11 +22,11 @@ export function readBrowserCookies() {
     if (!trimmed) continue;
     const eqIdx = trimmed.indexOf("=");
     if (eqIdx === -1) {
-      result.push({ name: trimmed, value: "" });
+      if (trimmed.startsWith(COOKIE_PREFIX)) result.push({ name: trimmed, value: "" });
     } else {
       const name = trimmed.slice(0, eqIdx).trim();
       const value = trimmed.slice(eqIdx + 1).trim();
-      if (name) result.push({ name, value });
+      if (name && name.startsWith(COOKIE_PREFIX)) result.push({ name, value });
     }
   }
   return result;
@@ -30,29 +37,30 @@ export function readBrowserCookies() {
  */
 export function restoreBrowserCookies(cookies = []) {
   if (typeof document === "undefined" || !Array.isArray(cookies)) return;
-  // ponytail: cookie namespace strictly vibe_rp_, upgrade to prefix allowlist if custom namespaces needed
+  const secure = secureSuffix();
   for (const c of cookies) {
     if (!c || !c.name) continue;
     const name = String(c.name).replace(/[\r\n;]/g, "").trim();
-    if (!name.startsWith("vibe_rp_")) continue;
+    if (!name.startsWith(COOKIE_PREFIX)) continue;
     const val = String(c.value ?? "").replace(/[\r\n;]/g, "").trim();
-    document.cookie = `${name}=${val}; path=/; max-age=31536000; SameSite=Lax`;
+    document.cookie = `${name}=${val}; path=/; max-age=31536000; SameSite=Lax${secure}`;
   }
 }
 
 /**
- * Clears all readable cookies by setting their expiration in the past.
+ * Clears all readable app-owned (`vibe_rp_`-prefixed) cookies by setting their expiration in the past.
  */
 export function clearBrowserCookies() {
   if (typeof document === "undefined" || !document.cookie) return;
+  const secure = secureSuffix();
   const pairs = document.cookie.split(";");
   for (const pair of pairs) {
     const trimmed = pair.trim();
     if (!trimmed) continue;
     const eqIdx = trimmed.indexOf("=");
     const name = eqIdx === -1 ? trimmed : trimmed.slice(0, eqIdx).trim();
-    if (name) {
-      document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0; SameSite=Lax`;
+    if (name && name.startsWith(COOKIE_PREFIX)) {
+      document.cookie = `${name}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0; SameSite=Lax${secure}`;
     }
   }
 }
@@ -85,7 +93,7 @@ export function downloadBackupFile(backupData, filename = null) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 100);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   return name;
 }
 
@@ -95,12 +103,20 @@ export function downloadBackupFile(backupData, filename = null) {
  */
 export async function readBackupFile(file) {
   if (!file) throw new Error("No file selected.");
+  if (typeof file.size === "number" && file.size > MAX_BACKUP_BYTES) {
+    throw new Error("Backup file exceeds the 100 MB safety limit.");
+  }
   const text = await file.text();
+  let parsed;
   try {
-    return JSON.parse(text);
+    parsed = JSON.parse(text);
   } catch (_) {
     throw new Error("The selected file is not valid JSON.");
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Invalid backup: expected a JSON object.");
+  }
+  return parsed;
 }
 
 /**
@@ -136,7 +152,37 @@ export function downloadTranscriptFile(session, options = {}) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 100);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return filename;
+}
+
+/**
+ * Triggers a client-side download of a single conversation as JSON.
+ */
+export function downloadSessionJsonFile(session, { cardName = "" } = {}) {
+  const title = String(session?.title || "chat").toLowerCase().replace(/[^a-z0-9_-]+/gi, "-").slice(0, 40);
+  const filename = `${title}-${fileTimestamp()}.json`;
+  const payload = {
+    format: "vibe-rp-conversation",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    cardId: session?.cardId || "",
+    cardName: cardName || "",
+    title: session?.title || "Conversation",
+    messages: Array.isArray(session?.messages) ? session.messages : [],
+    ledger: session?.ledger || "",
+    consumed: session?.consumed || 1,
+    authorsNote: session?.authorsNote || "",
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
   return filename;
 }
 

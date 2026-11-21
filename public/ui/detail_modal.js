@@ -147,7 +147,7 @@ function startRename(session, titleBtn, handlers) {
     class: "rp-input rp-thread__input",
     value: original,
     maxlength: 80,
-    attrs: { "aria-label": "Rename conversation" },
+    attrs: { "aria-label": "Rename conversation", "data-escape-local": "true" },
   });
   titleBtn.replaceWith(input);
   input.focus();
@@ -157,11 +157,22 @@ function startRename(session, titleBtn, handlers) {
     if (settled) return;
     settled = true;
     const next = (save ? input.value.trim() : original) || "Conversation";
+    if (!save || next === original) {
+      input.replaceWith(titleBtn);
+      return;
+    }
     await handlers.onRenameSession?.(session, next);
   };
   input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") finish(true);
-    else if (event.key === "Escape") finish(false);
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
   });
   input.addEventListener("blur", () => finish(true));
 }
@@ -246,7 +257,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
       class: "rp-input rp-detail__name-input",
       value: original,
       maxlength: 80,
-      attrs: { "aria-label": "Rename character" },
+      attrs: { "aria-label": "Rename character", "data-escape-local": "true" },
     });
     nameBtn.replaceWith(input);
     input.focus();
@@ -273,6 +284,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
       paintNameButton();
     };
     input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
       if (event.key === "Enter") {
         event.preventDefault();
         finish(true);
@@ -495,6 +507,52 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     close();
   });
 
+  const editBtn = handlers.onEditCard
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--ghost rp-btn--sm",
+        text: "Edit",
+        attrs: { "data-detail-edit": "true" },
+      })
+    : null;
+  editBtn?.addEventListener("click", () => {
+    close();
+    handlers.onEditCard?.(card);
+  });
+
+  const cloneBtn = handlers.onCloneCard
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--ghost rp-btn--sm",
+        text: "Duplicate",
+        attrs: { "data-detail-clone": "true" },
+      })
+    : null;
+  cloneBtn?.addEventListener("click", async () => {
+    await handlers.onCloneCard?.(card);
+    close();
+  });
+
+  const exportJsonBtn = handlers.onExportCardJson
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--ghost rp-btn--sm",
+        text: "Export JSON",
+        attrs: { "data-detail-export-json": "true" },
+      })
+    : null;
+  exportJsonBtn?.addEventListener("click", () => handlers.onExportCardJson?.(card));
+
+  const exportPngBtn = handlers.onExportCardPng
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--ghost rp-btn--sm",
+        text: "Export PNG",
+        attrs: { "data-detail-export-png": "true" },
+      })
+    : null;
+  exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
+
   const newChatBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--primary",
@@ -507,7 +565,11 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
 
   const footer = el("footer", { class: "rp-dialog__footer" }, [
     deleteBtn,
-    el("div", { class: "rp-detail__footer-actions" }, [historyBtn, newChatBtn]),
+    el(
+      "div",
+      { class: "rp-detail__footer-actions" },
+      [editBtn, cloneBtn, exportJsonBtn, exportPngBtn, historyBtn, newChatBtn].filter(Boolean),
+    ),
   ]);
 
   const dialog = el("dialog", { class: "rp-dialog", attrs: { "aria-labelledby": "rp-detail-name" } }, [

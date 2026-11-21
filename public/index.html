@@ -36,6 +36,8 @@
       </svg>
     </button>
 
+    <button type="button" id="create-card-btn" class="rp-btn rp-btn--ghost">+ New character</button>
+
     <button type="button" id="import-btn" class="rp-btn rp-btn--primary rp-topbar__import" aria-haspopup="dialog" aria-label="Import character">
       <svg class="rp-topbar__import-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M12 3v12"></path>
@@ -69,6 +71,7 @@
         <label class="rp-label" for="library-sort">Sort</label>
         <select id="library-sort" class="rp-select">
           <option value="recent">Recently chatted</option>
+          <option value="favorites">Favorites first</option>
           <option value="name">Name</option>
         </select>
       </div>

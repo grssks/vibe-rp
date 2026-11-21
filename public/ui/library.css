@@ -808,6 +808,15 @@ input[type="search"]::-webkit-search-results-decoration {
   flex: none;
 }
 
+.rp-card__fav {
+  color: var(--ink-faint);
+  font-size: var(--text-base);
+}
+
+.rp-card__fav[aria-pressed="true"] {
+  color: var(--accent-annotation);
+}
+
 /* ============================================================ RESPONSIVE == */
 
 @media (max-width: 720px) {

@@ -99,7 +99,7 @@ export function avatarInnerHtml(url, fallbackLetter) {
   const src = String(url || "").trim();
   const letter = String(fallbackLetter ?? "").trim().charAt(0).toUpperCase() || "?";
   if (isSafeAvatarUrl(src)) {
-    return `<img src="${escapeAttr(src)}" alt="" style="width:100%;height:100%;object-fit:cover;">`;
+    return `<img class="rp-avatar__img" src="${escapeAttr(src)}" alt="">`;
   }
   return escapeHtml(letter);
 }
@@ -157,6 +157,16 @@ export function sortCards(cards, mode = "recent") {
   const copy = [...cards];
   if (mode === "name") {
     return copy.sort((a, b) => cardTitle(a).localeCompare(cardTitle(b), undefined, { sensitivity: "base" }));
+  }
+  if (mode === "favorites") {
+    return copy.sort((a, b) => {
+      const favDelta = (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0);
+      if (favDelta !== 0) return favDelta;
+      const aTime = a.lastUpdated || 0;
+      const bTime = b.lastUpdated || 0;
+      if (bTime !== aTime) return bTime - aTime;
+      return cardTitle(a).localeCompare(cardTitle(b), undefined, { sensitivity: "base" });
+    });
   }
   return copy.sort((a, b) => {
     const aTime = a.lastUpdated || 0;

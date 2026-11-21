@@ -35,6 +35,10 @@ export async function compressImage(file, maxSize = DEFAULT_MAX) {
     image.onload = () => {
       try {
         let { width, height } = image;
+        if (!width || !height) {
+          resolve(original);
+          return;
+        }
         if (width > height) {
           if (width > maxSize) {
             height = Math.round((height * maxSize) / width);
@@ -49,7 +53,17 @@ export async function compressImage(file, maxSize = DEFAULT_MAX) {
         canvas.height = height;
         const context = canvas.getContext("2d");
         context.drawImage(image, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/webp", QUALITY) || canvas.toDataURL("image/jpeg", QUALITY) || original);
+        const webp = canvas.toDataURL("image/webp", QUALITY);
+        if (webp && webp.startsWith("data:image/webp")) {
+          resolve(webp);
+          return;
+        }
+        const jpeg = canvas.toDataURL("image/jpeg", QUALITY);
+        if (jpeg && jpeg.startsWith("data:image/jpeg")) {
+          resolve(jpeg);
+          return;
+        }
+        resolve(original);
       } catch (_) {
         // A tainted or zero-sized canvas: keep the original bytes.
         resolve(original);
