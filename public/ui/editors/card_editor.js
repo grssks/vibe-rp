@@ -153,26 +153,42 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     text: "\u00d7",
   });
 
-  const avatarPreview = el("div", { class: "rp-avatar rp-avatar--xl" });
-  const chooseAvatarBtn = el("button", {
-    type: "button",
-    class: "rp-btn rp-btn--secondary rp-btn--sm",
+  const avatarInner = el("div", { class: "rp-detail__portrait-inner" });
+  const avatarHintText = el("span", {
+    class: "rp-detail__portrait-hint-text",
     text: avatar ? "Change photo" : "Upload photo",
   });
+  const avatarBtn = el("button", {
+    type: "button",
+    class: "rp-detail__portrait rp-detail__portrait--editor",
+    attrs: { "aria-label": avatar ? "Change character portrait" : "Upload character portrait" },
+  }, [
+    avatarInner,
+    el("span", { class: "rp-detail__portrait-hint", attrs: { "aria-hidden": "true" } }, [
+      el("span", {
+        class: "rp-detail__portrait-hint-icon",
+        attrs: { "aria-hidden": "true" },
+        html: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14 7l3 3"/></svg>',
+      }),
+      avatarHintText,
+    ]),
+  ]);
   const clearAvatarBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--ghost rp-btn--sm",
     text: "Remove photo",
   });
   const renderAvatarPreview = () => {
-    avatarPreview.textContent = "";
+    avatarInner.textContent = "";
     if (avatar) {
-      avatarPreview.appendChild(el("img", { attrs: { src: avatar, alt: "Character portrait" } }));
-      chooseAvatarBtn.textContent = "Change photo";
+      avatarInner.appendChild(el("img", { attrs: { src: avatar, alt: "" } }));
+      avatarHintText.textContent = "Change photo";
+      avatarBtn.setAttribute("aria-label", "Change character portrait");
     } else {
       const initial = String(nameInput?.value || card?.name || "C").trim().charAt(0).toUpperCase() || "C";
-      avatarPreview.appendChild(el("span", { class: "rp-avatar__initials", text: initial }));
-      chooseAvatarBtn.textContent = "Upload photo";
+      avatarInner.appendChild(el("span", { class: "rp-avatar__initials", text: initial }));
+      avatarHintText.textContent = "Upload photo";
+      avatarBtn.setAttribute("aria-label", "Upload character portrait");
     }
     clearAvatarBtn.hidden = !avatar;
   };
@@ -183,7 +199,7 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     attrs: { id: "rp-card-avatar-file", accept: "image/*", "aria-hidden": "true", tabindex: "-1" },
   });
 
-  chooseAvatarBtn.addEventListener("click", () => avatarFileInput.click());
+  avatarBtn.addEventListener("click", () => avatarFileInput.click());
   clearAvatarBtn.addEventListener("click", () => {
     avatar = null;
     renderAvatarPreview();
@@ -357,10 +373,9 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
   });
 
   const characterPanel = el("div", { class: "rp-tabpanel rp-settings__panel", id: "rp-card-tab-character" }, [
-    el("div", { class: "rp-persona-editor__hero" }, [
+    el("div", { class: "rp-persona-editor__hero rp-card-editor__hero" }, [
       el("div", { class: "rp-persona-editor__portrait" }, [
-        avatarPreview,
-        chooseAvatarBtn,
+        avatarBtn,
         clearAvatarBtn,
         avatarFileInput,
       ]),

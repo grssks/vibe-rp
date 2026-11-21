@@ -373,6 +373,17 @@ describe("Card Studio, CCv2 JSON/PNG Round-Trip & Favorites", () => {
       card: null,
       onSave: async (payload: { name?: string; spec?: string }) => { saved = payload; },
     });
+    const portraitBtn = modal.element.querySelector(".rp-detail__portrait") as unknown as {
+      tagName?: string;
+    } | null;
+    expect(portraitBtn?.tagName).toBe("BUTTON");
+    const standaloneButtons = (modal.element as unknown as { descendants: () => Array<{ tagName?: string; textContent?: string; hidden?: boolean }> })
+      .descendants()
+      .filter((n) => n.tagName === "BUTTON");
+    expect(standaloneButtons.some((b) => b.textContent === "Upload photo")).toBe(false);
+    const removePhotoBtn = standaloneButtons.find((b) => b.textContent === "Remove photo");
+    expect(removePhotoBtn?.hidden).toBe(true);
+
     const form = modal.element.querySelector("form") as unknown as { dispatch: (t: string, ev: unknown) => void };
     (byId(modal.element, "rp-card-name") as unknown as HTMLInputElement).value = "Rowan";
     (byId(modal.element, "rp-card-description") as unknown as HTMLTextAreaElement).value = "A quiet cartographer.";

@@ -334,6 +334,17 @@
   }
 }
 
+.rp-card-editor__hero {
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.rp-detail__portrait--editor .rp-detail__portrait-inner {
+  width: 168px;
+  height: 168px;
+  font-size: var(--text-3xl);
+}
+
 .rp-detail__hero-meta {
   display: flex;
   flex-direction: column;
@@ -867,5 +878,16 @@ input[type="search"]::-webkit-search-results-decoration {
 
   .rp-card__body {
     -webkit-line-clamp: 2;
+  }
+
+  .rp-card-editor__hero {
+    align-items: stretch;
+    gap: var(--space-4);
+  }
+
+  .rp-detail__portrait--editor .rp-detail__portrait-inner {
+    width: 120px;
+    height: 120px;
+    font-size: var(--text-2xl);
   }
 }
