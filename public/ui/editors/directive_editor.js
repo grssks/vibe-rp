@@ -39,7 +39,7 @@ export function openDirectiveEditor({ directive = null, onSave, host } = {}) {
   });
 
   const contentTokens = el("span", {
-    class: "rp-badge rp-badge--count rp-tnum",
+    class: "rp-badge rp-tnum",
     text: `~${estimateTokens(directive?.content || "")} tokens`,
   });
 

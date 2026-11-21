@@ -98,7 +98,7 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
   });
 
   const templateTokens = el("span", {
-    class: "rp-badge rp-badge--count rp-tnum",
+    class: "rp-badge rp-tnum",
     text: `~${estimateTokens(persona?.template || "")} tokens`,
   });
 

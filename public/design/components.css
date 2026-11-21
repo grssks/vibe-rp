@@ -2590,3 +2590,31 @@ dialog.rp-dialog:not([open]) {
   cursor: pointer;
 }
 
+.rp-check input {
+  accent-color: var(--accent-annotation);
+}
+
+.rp-select--inline {
+  width: auto;
+  min-width: 15rem;
+  flex: 0 1 auto;
+}
+
+.rp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rp-stack--xs {
+  gap: var(--space-1);
+}
+
+.rp-stack--sm {
+  gap: var(--space-2);
+}
+
+.rp-stack--md {
+  gap: var(--space-4);
+}
+

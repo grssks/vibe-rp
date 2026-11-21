@@ -4,6 +4,7 @@
 
 import { el } from "../dom.js";
 import { openModal, closeModal } from "../modal.js";
+import { initTabs } from "../tabs.js";
 import { compressImage } from "../image.js";
 import { estimateTokens } from "../../context_plan.js";
 
@@ -12,7 +13,7 @@ function tokenText(value) {
 }
 
 function buildFieldWithTokens({ id, label, value = "", rows = 3, placeholder = "" }) {
-  const countEl = el("span", { class: "rp-badge rp-badge--count rp-tnum", text: tokenText(value) });
+  const countEl = el("span", { class: "rp-badge rp-tnum", text: tokenText(value) });
   const textarea = el("textarea", {
     id,
     class: "rp-textarea",
@@ -124,6 +125,12 @@ function buildLoreEntryRow(entry = {}) {
   return row;
 }
 
+const CARD_TABS = [
+  { id: "rp-card-tab-character", label: "Character" },
+  { id: "rp-card-tab-greetings", label: "Greetings & dialogue" },
+  { id: "rp-card-tab-lore", label: "Prompts & lorebook" },
+];
+
 /**
  * Opens the Character Card Studio dialog to create or edit a CCv2 card.
  */
@@ -146,46 +153,47 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     text: "\u00d7",
   });
 
-  const avatarPreview = el("div", { class: "rp-avatar rp-avatar--lg" });
-  const renderAvatarPreview = () => {
-    avatarPreview.textContent = "";
-    if (avatar) {
-      avatarPreview.appendChild(el("img", { attrs: { src: avatar, alt: "Character portrait" } }));
-    } else {
-      const initial = String(nameInput?.value || card?.name || "C").trim().charAt(0).toUpperCase() || "C";
-      avatarPreview.appendChild(el("span", { class: "rp-avatar__initials", text: initial }));
-    }
-  };
-
-  const avatarFileInput = el("input", {
-    type: "file",
-    class: "rp-sr-only",
-    attrs: { id: "rp-card-avatar-file", accept: "image/*" },
-  });
+  const avatarPreview = el("div", { class: "rp-avatar rp-avatar--xl" });
   const chooseAvatarBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--secondary rp-btn--sm",
-    text: "Choose portrait",
+    text: avatar ? "Change photo" : "Upload photo",
   });
   const clearAvatarBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--ghost rp-btn--sm",
-    text: "Clear portrait",
+    text: "Remove photo",
   });
-  clearAvatarBtn.hidden = !avatar;
+  const renderAvatarPreview = () => {
+    avatarPreview.textContent = "";
+    if (avatar) {
+      avatarPreview.appendChild(el("img", { attrs: { src: avatar, alt: "Character portrait" } }));
+      chooseAvatarBtn.textContent = "Change photo";
+    } else {
+      const initial = String(nameInput?.value || card?.name || "C").trim().charAt(0).toUpperCase() || "C";
+      avatarPreview.appendChild(el("span", { class: "rp-avatar__initials", text: initial }));
+      chooseAvatarBtn.textContent = "Upload photo";
+    }
+    clearAvatarBtn.hidden = !avatar;
+  };
+
+  const avatarFileInput = el("input", {
+    type: "file",
+    class: "visually-hidden",
+    attrs: { id: "rp-card-avatar-file", accept: "image/*", "aria-hidden": "true", tabindex: "-1" },
+  });
 
   chooseAvatarBtn.addEventListener("click", () => avatarFileInput.click());
   clearAvatarBtn.addEventListener("click", () => {
     avatar = null;
-    clearAvatarBtn.hidden = true;
     renderAvatarPreview();
   });
   avatarFileInput.addEventListener("change", async () => {
     const file = avatarFileInput.files?.[0];
+    avatarFileInput.value = "";
     if (!file) return;
     try {
       avatar = await compressImage(file, 256, 0.85);
-      clearAvatarBtn.hidden = false;
       renderAvatarPreview();
     } catch (err) {
       host?.toast?.(err?.message || "Could not process portrait image.", { tone: "error" });
@@ -245,14 +253,14 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     id: "rp-card-first-mes",
     label: "First message (opening greeting)",
     value: card?.first_mes ?? existingData.first_mes ?? "",
-    rows: 4,
+    rows: 5,
     placeholder: "Character's opening message...",
   });
   const mesExampleField = buildFieldWithTokens({
     id: "rp-card-mes-example",
     label: "Example dialogue",
     value: card?.mes_example ?? existingData.mes_example ?? "",
-    rows: 3,
+    rows: 4,
     placeholder: "<START>\n{{user}}: ...\n{{char}}: ...",
   });
   const sysPromptField = buildFieldWithTokens({
@@ -337,7 +345,18 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
 
   renderAvatarPreview();
 
-  const form = el("form", { class: "rp-dialog__body rp-stack rp-stack--md", attrs: { novalidate: "" } }, [
+  const tablist = el(
+    "div",
+    { class: "rp-tabs rp-settings__tabs" },
+    CARD_TABS.map((entry) =>
+      el("button", { type: "button", class: "rp-tab", id: `${entry.id}-btn`, text: entry.label }),
+    ),
+  );
+  CARD_TABS.forEach((entry, index) => {
+    tablist.children[index].setAttribute("aria-controls", entry.id);
+  });
+
+  const characterPanel = el("div", { class: "rp-tabpanel rp-settings__panel", id: "rp-card-tab-character" }, [
     el("div", { class: "rp-persona-editor__hero" }, [
       el("div", { class: "rp-persona-editor__portrait" }, [
         avatarPreview,
@@ -363,35 +382,56 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     descField.wrap,
     persField.wrap,
     scenField.wrap,
-    firstMesField.wrap,
-    el("div", { class: "rp-stack rp-stack--sm" }, [
-      el("div", { class: "rp-field__head" }, [
-        el("span", { class: "rp-label", text: "Alternate greetings" }),
-        addAltBtn,
+  ]);
+
+  const greetingsPanel = el(
+    "div",
+    { class: "rp-tabpanel rp-settings__panel", id: "rp-card-tab-greetings", hidden: true },
+    [
+      firstMesField.wrap,
+      el("div", { class: "rp-stack rp-stack--sm" }, [
+        el("div", { class: "rp-field__head" }, [
+          el("span", { class: "rp-label", text: "Alternate greetings" }),
+          addAltBtn,
+        ]),
+        altContainer,
       ]),
-      altContainer,
-    ]),
-    mesExampleField.wrap,
-    sysPromptField.wrap,
-    postHistField.wrap,
-    notesField.wrap,
-    el("div", { class: "rp-grid rp-grid--2" }, [
-      el("div", { class: "rp-field" }, [
-        el("label", { class: "rp-label", attrs: { for: "rp-card-persona" }, text: "Default persona" }),
-        personaSelect,
+      mesExampleField.wrap,
+    ],
+  );
+
+  const lorePanel = el(
+    "div",
+    { class: "rp-tabpanel rp-settings__panel", id: "rp-card-tab-lore", hidden: true },
+    [
+      el("div", { class: "rp-directive-editor__row" }, [
+        el("div", { class: "rp-field" }, [
+          el("label", { class: "rp-label", attrs: { for: "rp-card-persona" }, text: "Default persona" }),
+          personaSelect,
+        ]),
+        el("div", { class: "rp-field" }, [
+          el("label", { class: "rp-label", attrs: { for: "rp-card-directive" }, text: "Default craft directive" }),
+          directiveSelect,
+        ]),
       ]),
-      el("div", { class: "rp-field" }, [
-        el("label", { class: "rp-label", attrs: { for: "rp-card-directive" }, text: "Default craft directive" }),
-        directiveSelect,
+      sysPromptField.wrap,
+      postHistField.wrap,
+      notesField.wrap,
+      el("div", { class: "rp-stack rp-stack--sm" }, [
+        el("div", { class: "rp-field__head" }, [
+          el("span", { class: "rp-label", text: "Lorebook entries" }),
+          addLoreBtn,
+        ]),
+        loreContainer,
       ]),
-    ]),
-    el("div", { class: "rp-stack rp-stack--sm" }, [
-      el("div", { class: "rp-field__head" }, [
-        el("span", { class: "rp-label", text: "Lorebook entries" }),
-        addLoreBtn,
-      ]),
-      loreContainer,
-    ]),
+    ],
+  );
+
+  const form = el("form", { class: "rp-dialog__body", attrs: { novalidate: "" } }, [
+    tablist,
+    characterPanel,
+    greetingsPanel,
+    lorePanel,
     errorEl,
   ]);
 
@@ -421,10 +461,14 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     ],
   );
 
+  document.body.appendChild(dialog);
+  const tabs = initTabs(tablist, { activation: "manual" });
+
   let settled = false;
   const cleanup = () => {
     if (settled) return;
     settled = true;
+    tabs.destroy();
     dialog.remove();
   };
   const close = () => {
@@ -437,6 +481,7 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
   async function submitCard() {
     const nameVal = nameInput.value.trim();
     if (!nameVal) {
+      tabs.select("rp-card-tab-character");
       errorEl.textContent = "Character name is required.";
       errorEl.hidden = false;
       nameInput.focus();
@@ -538,7 +583,6 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     submitCard();
   });
 
-  document.body.appendChild(dialog);
   openModal({
     element: dialog,
     onClose: cleanup,

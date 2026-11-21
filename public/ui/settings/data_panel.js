@@ -52,10 +52,13 @@ export function mountDataPanel(root, options = {}) {
 
   // Storage metrics block
   const statsWrap = el("div", { class: "rp-storage-stats" });
+  let statsSeq = 0;
 
   const renderStats = async () => {
+    const seq = ++statsSeq;
     try {
       const stats = await LocalDb.getStorageStats();
+      if (seq !== statsSeq) return;
       const cookies = readBrowserCookies();
       statsWrap.className = "rp-storage-stats";
       statsWrap.textContent = "";
@@ -78,27 +81,15 @@ export function mountDataPanel(root, options = {}) {
       }
 
       if (stats.usage > 0) {
+        const usageText = stats.quota > 0
+          ? `${formatBytes(stats.usage)} / ${formatBytes(stats.quota)}`
+          : formatBytes(stats.usage);
         statsWrap.append(
           el("div", { class: "rp-storage-stat" }, [
             el("span", { class: "rp-storage-stat__label", text: "Disk used" }),
-            el("span", { class: "rp-badge", text: formatBytes(stats.usage) }),
+            el("span", { class: "rp-badge rp-tnum", text: usageText }),
           ])
         );
-      }
-
-      if (typeof navigator !== "undefined" && typeof navigator.storage?.estimate === "function") {
-        try {
-          const est = await navigator.storage.estimate();
-          if (est?.quota > 0) {
-            const pct = Math.min(100, Math.round(((est.usage || 0) / est.quota) * 100));
-            statsWrap.append(
-              el("div", { class: "rp-storage-stat" }, [
-                el("span", { class: "rp-storage-stat__label", text: "Storage quota" }),
-                el("span", { class: "rp-badge rp-tnum", text: `${formatBytes(est.usage || 0)} / ${formatBytes(est.quota)} (${pct}%)` }),
-              ])
-            );
-          }
-        } catch { /* ignore unavailable quota API */ }
       }
 
       if (typeof stats.persisted === "boolean") {
@@ -152,23 +143,24 @@ export function mountDataPanel(root, options = {}) {
     id: "rp-data-exclude-secrets",
   });
 
-  const excludeSecretsRow = el("label", { class: "rp-check", attrs: { for: "rp-data-exclude-secrets" } }, [
+  const excludeSecretsRow = el("label", { class: "rp-settings__check", attrs: { for: "rp-data-exclude-secrets" } }, [
     excludeSecretsCheckbox,
-    el("span", { text: "Exclude API keys and session tokens from backup" }),
+    el("span", { text: "Exclude API keys and session tokens from exported backup" }),
   ]);
 
   const restoreModeSelect = el("select", {
     id: "rp-data-restore-mode",
-    class: "rp-select",
+    class: "rp-select rp-select--inline",
     attrs: { "aria-label": "Backup restore mode" },
   }, [
-    el("option", { value: "merge", text: "Merge into existing data (keep current, overwrite ID collisions)" }),
-    el("option", { value: "replace", text: "Replace existing data (wipe & restore)" }),
+    el("option", { value: "merge", text: "Import mode: Merge with existing" }),
+    el("option", { value: "replace", text: "Import mode: Replace all data" }),
   ]);
 
   const backupActions = el("div", { class: "rp-actions-row" }, [
     exportBtn,
     importBtn,
+    restoreModeSelect,
     importInput,
   ]);
 
@@ -176,10 +168,6 @@ export function mountDataPanel(root, options = {}) {
     el("span", { class: "rp-label", text: "Backup and restore" }),
     backupNotice,
     excludeSecretsRow,
-    el("div", { class: "rp-field" }, [
-      el("label", { class: "rp-label", for: "rp-data-restore-mode", text: "Restore mode" }),
-      restoreModeSelect,
-    ]),
     backupActions,
   ]);
 

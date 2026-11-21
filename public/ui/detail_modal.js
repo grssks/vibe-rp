@@ -466,7 +466,49 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     },
   };
 
-  const infoView = el("div", { class: "rp-detail__view" }, [hero, tablist, aboutPanel, storyPanel, notesPanel]);
+  const cloneBtn = handlers.onCloneCard
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Duplicate",
+        attrs: { "data-detail-clone": "true" },
+      })
+    : null;
+  cloneBtn?.addEventListener("click", async () => {
+    await handlers.onCloneCard?.(card);
+    close();
+  });
+
+  const exportJsonBtn = handlers.onExportCardJson
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Export JSON",
+        attrs: { "data-detail-export-json": "true" },
+      })
+    : null;
+  exportJsonBtn?.addEventListener("click", () => handlers.onExportCardJson?.(card));
+
+  const exportPngBtn = handlers.onExportCardPng
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Export PNG",
+        attrs: { "data-detail-export-png": "true" },
+      })
+    : null;
+  exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
+
+  const toolbarButtons = [cloneBtn, exportJsonBtn, exportPngBtn].filter(Boolean);
+  const toolbar = toolbarButtons.length
+    ? el("div", { class: "rp-detail__toolbar" }, toolbarButtons)
+    : null;
+
+  const infoView = el(
+    "div",
+    { class: "rp-detail__view" },
+    [hero, toolbar, tablist, aboutPanel, storyPanel, notesPanel].filter(Boolean),
+  );
   const historyView = el("div", { class: "rp-detail__view", hidden: true }, [
     section("Saved chats", "Choose a chat to resume it", threadList),
   ]);
@@ -510,8 +552,8 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
   const editBtn = handlers.onEditCard
     ? el("button", {
         type: "button",
-        class: "rp-btn rp-btn--secondary rp-btn--sm",
-        text: "Edit",
+        class: "rp-btn rp-btn--secondary",
+        text: "Edit character",
         attrs: { "data-detail-edit": "true" },
       })
     : null;
@@ -519,46 +561,6 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     close();
     handlers.onEditCard?.(card);
   });
-
-  const cloneBtn = handlers.onCloneCard
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--ghost rp-btn--sm",
-        text: "Duplicate",
-        attrs: { "data-detail-clone": "true" },
-      })
-    : null;
-  cloneBtn?.addEventListener("click", async () => {
-    await handlers.onCloneCard?.(card);
-    close();
-  });
-
-  const exportJsonBtn = handlers.onExportCardJson
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--ghost rp-btn--sm",
-        text: "Export JSON",
-        attrs: { "data-detail-export-json": "true" },
-      })
-    : null;
-  exportJsonBtn?.addEventListener("click", () => handlers.onExportCardJson?.(card));
-
-  const exportPngBtn = handlers.onExportCardPng
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--ghost rp-btn--sm",
-        text: "Export PNG",
-        attrs: { "data-detail-export-png": "true" },
-      })
-    : null;
-  exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
-
-  const cardActionRow = [editBtn, cloneBtn, exportJsonBtn, exportPngBtn].filter(Boolean);
-  if (cardActionRow.length) {
-    hero.querySelector(".rp-detail__hero-meta")?.appendChild(
-      el("div", { class: "rp-actions-row" }, cardActionRow)
-    );
-  }
 
   const newChatBtn = el("button", {
     type: "button",
@@ -572,7 +574,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
 
   const footer = el("footer", { class: "rp-dialog__footer" }, [
     deleteBtn,
-    el("div", { class: "rp-detail__footer-actions" }, [historyBtn, newChatBtn]),
+    el("div", { class: "rp-detail__footer-actions" }, [editBtn, historyBtn, newChatBtn].filter(Boolean)),
   ]);
 
   const dialog = el("dialog", { class: "rp-dialog", attrs: { "aria-labelledby": "rp-detail-name" } }, [
