@@ -298,7 +298,64 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
   }
   paintNameButton();
 
+  const editBtn = handlers.onEditCard
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        attrs: { "data-detail-edit": "true" },
+      }, [
+        el("span", {
+          attrs: { "aria-hidden": "true" },
+          html: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="M14 7l3 3"/></svg>',
+        }),
+        el("span", { text: "Edit" }),
+      ])
+    : null;
+  editBtn?.addEventListener("click", () => {
+    close();
+    handlers.onEditCard?.(card);
+  });
+
+  const cloneBtn = handlers.onCloneCard
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Duplicate",
+        attrs: { "data-detail-clone": "true" },
+      })
+    : null;
+  cloneBtn?.addEventListener("click", async () => {
+    await handlers.onCloneCard?.(card);
+    close();
+  });
+
+  const exportJsonBtn = handlers.onExportCardJson
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Export JSON",
+        attrs: { "data-detail-export-json": "true" },
+      })
+    : null;
+  exportJsonBtn?.addEventListener("click", () => handlers.onExportCardJson?.(card));
+
+  const exportPngBtn = handlers.onExportCardPng
+    ? el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
+        text: "Export PNG",
+        attrs: { "data-detail-export-png": "true" },
+      })
+    : null;
+  exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
+
+  const toolbarButtons = [editBtn, cloneBtn, exportJsonBtn, exportPngBtn].filter(Boolean);
+  const toolbar = toolbarButtons.length
+    ? el("div", { class: "rp-detail__toolbar" }, toolbarButtons)
+    : null;
+
   const nickname = String(data.nickname || data.extensions?.source?.title || "").trim();
+  const tags = cardTags(card);
   const hero = el("div", { class: "rp-detail__hero" }, [
     changeAvatar,
     el("div", { class: "rp-detail__hero-meta" }, [
@@ -307,12 +364,15 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
         ? el("p", { class: "rp-detail__nickname", text: `"${nickname}"` })
         : null,
       el("p", { class: "rp-detail__byline", text: `${cardByline(card)}, v${data.character_version || data.char_version || "1.0"}` }),
-      el(
-        "div",
-        { class: "rp-chip-group rp-detail__tags" },
-        cardTags(card).map((tag) => el("span", { class: "rp-chip rp-chip--muted", text: tag }))
-      ),
-    ]),
+      tags.length
+        ? el(
+            "div",
+            { class: "rp-chip-group rp-detail__tags" },
+            tags.map((tag) => el("span", { class: "rp-chip", text: tag }))
+          )
+        : null,
+      toolbar,
+    ].filter(Boolean)),
   ]);
 
   // Navigation tabs.
@@ -466,48 +526,10 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     },
   };
 
-  const cloneBtn = handlers.onCloneCard
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--secondary rp-btn--sm",
-        text: "Duplicate",
-        attrs: { "data-detail-clone": "true" },
-      })
-    : null;
-  cloneBtn?.addEventListener("click", async () => {
-    await handlers.onCloneCard?.(card);
-    close();
-  });
-
-  const exportJsonBtn = handlers.onExportCardJson
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--secondary rp-btn--sm",
-        text: "Export JSON",
-        attrs: { "data-detail-export-json": "true" },
-      })
-    : null;
-  exportJsonBtn?.addEventListener("click", () => handlers.onExportCardJson?.(card));
-
-  const exportPngBtn = handlers.onExportCardPng
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--secondary rp-btn--sm",
-        text: "Export PNG",
-        attrs: { "data-detail-export-png": "true" },
-      })
-    : null;
-  exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
-
-  const toolbarButtons = [cloneBtn, exportJsonBtn, exportPngBtn].filter(Boolean);
-  const toolbar = toolbarButtons.length
-    ? el("div", { class: "rp-detail__toolbar" }, toolbarButtons)
-    : null;
-
   const infoView = el(
     "div",
     { class: "rp-detail__view" },
-    [hero, toolbar, tablist, aboutPanel, storyPanel, notesPanel].filter(Boolean),
+    [hero, tablist, aboutPanel, storyPanel, notesPanel],
   );
   const historyView = el("div", { class: "rp-detail__view", hidden: true }, [
     section("Saved chats", "Choose a chat to resume it", threadList),
@@ -549,19 +571,6 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     close();
   });
 
-  const editBtn = handlers.onEditCard
-    ? el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--secondary",
-        text: "Edit character",
-        attrs: { "data-detail-edit": "true" },
-      })
-    : null;
-  editBtn?.addEventListener("click", () => {
-    close();
-    handlers.onEditCard?.(card);
-  });
-
   const newChatBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--primary",
@@ -574,7 +583,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
 
   const footer = el("footer", { class: "rp-dialog__footer" }, [
     deleteBtn,
-    el("div", { class: "rp-detail__footer-actions" }, [editBtn, historyBtn, newChatBtn].filter(Boolean)),
+    el("div", { class: "rp-detail__footer-actions" }, [historyBtn, newChatBtn]),
   ]);
 
   const dialog = el("dialog", { class: "rp-dialog", attrs: { "aria-labelledby": "rp-detail-name" } }, [

@@ -1229,6 +1229,10 @@ dialog.rp-dialog:not([open]) {
   min-height: 1.2em;
 }
 
+.rp-settings__section {
+  gap: var(--space-3);
+}
+
 /* The checkbox box: a raised panel holding one or more check rows. */
 .rp-settings__check-box {
   display: flex;
@@ -1244,14 +1248,40 @@ dialog.rp-dialog:not([open]) {
   cursor: pointer;
 }
 
+.rp-settings__check + .rp-settings__check {
+  padding-top: var(--space-3);
+  border-top: var(--border-width) solid var(--border-hairline);
+}
+
 .rp-settings__check input {
-  margin-top: 3px;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
   accent-color: var(--accent-annotation);
+  cursor: pointer;
+}
+
+.rp-settings__check-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .rp-settings__check-title {
   display: block;
+  font-size: var(--text-sm);
   font-weight: 600;
+  color: var(--ink);
+  line-height: var(--leading-ui);
+}
+
+.rp-settings__check-body .rp-help {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  line-height: var(--leading-prose);
 }
 
 /* A hairline that separates a trailing block (the session import) from the
@@ -1335,12 +1365,12 @@ dialog.rp-dialog:not([open]) {
 .rp-settings__danger-zone {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-4);
   background-color: var(--danger-subtle);
   border: var(--border-width) solid var(--danger);
   border-radius: var(--radius-md);
-  margin-top: var(--space-2);
 }
 
 .rp-settings__danger-title {
@@ -1352,8 +1382,7 @@ dialog.rp-dialog:not([open]) {
 .rp-settings__danger-text {
   font-size: var(--text-xs);
   color: var(--ink-muted);
-  line-height: var(--leading-ui);
-  margin-bottom: var(--space-2);
+  line-height: var(--leading-prose);
 }
 
 /* Flexible row of action buttons. */
@@ -2519,8 +2548,9 @@ dialog.rp-dialog:not([open]) {
   color: var(--ink);
   background-color: var(--warn-subtle);
   border-left: 2px solid var(--warn);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-sm);
+  line-height: var(--leading-prose);
 }
 
 .rp-settings__inline-actions {

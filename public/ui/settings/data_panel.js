@@ -145,10 +145,10 @@ export function mountDataPanel(root, options = {}) {
 
   const excludeSecretsRow = el("label", { class: "rp-settings__check", attrs: { for: "rp-data-exclude-secrets" } }, [
     excludeSecretsCheckbox,
-    el("span", {}, [
+    el("span", { class: "rp-settings__check-body" }, [
       el("span", { class: "rp-settings__check-title", text: "Exclude API keys and session tokens from exported backup" }),
       el("span", {
-        class: "rp-hint",
+        class: "rp-help",
         text: "Leave unchecked when moving your full setup (including API keys and JanitorAI session) to another device.",
       }),
     ]),
@@ -161,10 +161,10 @@ export function mountDataPanel(root, options = {}) {
 
   const replaceModeRow = el("label", { class: "rp-settings__check", attrs: { for: "rp-data-replace-mode" } }, [
     replaceModeCheckbox,
-    el("span", {}, [
+    el("span", { class: "rp-settings__check-body" }, [
       el("span", { class: "rp-settings__check-title", text: "Replace all existing data on import (wipe before restore)" }),
       el("span", {
-        class: "rp-hint",
+        class: "rp-help",
         text: "When unchecked (default), importing smartly merges your backup and preserves existing chats, custom personas, and non-default settings.",
       }),
     ]),
@@ -181,7 +181,7 @@ export function mountDataPanel(root, options = {}) {
     importInput,
   ]);
 
-  const backupSection = el("div", { class: "rp-field" }, [
+  const backupSection = el("div", { class: "rp-field rp-settings__section" }, [
     el("span", { class: "rp-label", text: "Backup and restore" }),
     backupNotice,
     backupOptionsBox,
@@ -191,37 +191,37 @@ export function mountDataPanel(root, options = {}) {
   // Section 2: Granular Resets
   const clearSessionsBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Clear all conversations",
   });
 
   const clearCardsBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Clear character library",
   });
 
   const resetPersonasBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Reset personas to default",
   });
 
   const resetDirectivesBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Reset system prompts to default",
   });
 
   const resetSettingsBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Reset API and generation settings",
   });
 
   const clearAuthBtn = el("button", {
     type: "button",
-    class: "rp-btn rp-btn--ghost rp-btn--sm",
+    class: "rp-btn rp-btn--secondary rp-btn--sm",
     text: "Clear saved sign-in",
   });
 
@@ -234,7 +234,7 @@ export function mountDataPanel(root, options = {}) {
     clearAuthBtn,
   ]);
 
-  const granularSection = el("div", { class: "rp-field" }, [
+  const granularSection = el("div", { class: "rp-field rp-settings__section" }, [
     el("span", { class: "rp-label", text: "Targeted resets" }),
     el("p", {
       class: "rp-help",
