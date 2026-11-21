@@ -4,6 +4,7 @@
 
 import { el } from "../dom.js";
 import { openModal, closeModal } from "../modal.js";
+import { confirmAction } from "../confirm.js";
 import { initTabs } from "../tabs.js";
 import { compressImage } from "../image.js";
 import { estimateTokens } from "../../context_plan.js";
@@ -490,8 +491,58 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
     if (!closeModal(dialog)) cleanup();
   };
 
-  closeBtn.addEventListener("click", close);
-  cancelBtn.addEventListener("click", close);
+  const snapshotState = () =>
+    JSON.stringify({
+      name: nameInput.value,
+      creator: creatorInput.value,
+      tags: tagsInput.value,
+      description: descField.textarea.value,
+      personality: persField.textarea.value,
+      scenario: scenField.textarea.value,
+      first_mes: firstMesField.textarea.value,
+      mes_example: mesExampleField.textarea.value,
+      system_prompt: sysPromptField.textarea.value,
+      post_history_instructions: postHistField.textarea.value,
+      creator_notes: notesField.textarea.value,
+      userPersonaId: personaSelect.value,
+      directivePresetId: directiveSelect.value,
+      avatar: avatar || "",
+      altGreetings: [...altContainer.querySelectorAll("textarea")].map((t) => t.value),
+      loreEntries: [...loreContainer.querySelectorAll("[data-lore-entry]")].map((row) => ({
+        comment: row.querySelector("[data-lore-comment]")?.value || "",
+        keys: row.querySelector("[data-lore-keys]")?.value || "",
+        content: row.querySelector("[data-lore-content]")?.value || "",
+        constant: Boolean(row.querySelector("[data-lore-constant]")?.checked),
+        enabled: row.querySelector("[data-lore-enabled]")?.checked !== false,
+        priority: row.querySelector("[data-lore-priority]")?.value || "",
+      })),
+    });
+
+  const initialSnapshot = snapshotState();
+  let confirmingDiscard = false;
+  const confirmDiscard = async () => {
+    if (snapshotState() === initialSnapshot) return true;
+    if (confirmingDiscard) return false;
+    confirmingDiscard = true;
+    try {
+      return await confirmAction({
+        title: "Discard unsaved changes?",
+        body: "Your edits haven't been saved yet.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        tone: "danger",
+        initialFocus: "cancel",
+      });
+    } finally {
+      confirmingDiscard = false;
+    }
+  };
+  const requestClose = async () => {
+    if (await confirmDiscard()) close();
+  };
+
+  closeBtn.addEventListener("click", requestClose);
+  cancelBtn.addEventListener("click", requestClose);
 
   async function submitCard() {
     const nameVal = nameInput.value.trim();
@@ -601,6 +652,7 @@ export function openCardEditor({ card = null, personas = [], directives = [], on
   openModal({
     element: dialog,
     onClose: cleanup,
+    onRequestClose: confirmDiscard,
     initialFocus: nameInput,
   });
 

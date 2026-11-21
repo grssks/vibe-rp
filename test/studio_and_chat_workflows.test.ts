@@ -15,6 +15,8 @@ import { downloadSessionJsonFile } from "../public/ui/data_transfer.js";
 import { sortCards } from "../public/ui/character_card.js";
 import { createLibraryController } from "../public/ui/library_controller.js";
 import { openCardEditor } from "../public/ui/editors/card_editor.js";
+import { openSettingsModal } from "../public/ui/settings/settings_modal.js";
+import { openModal, closeModal, isOpen } from "../public/ui/modal.js";
 import {
   elenaCard,
   TEST_SETTINGS,
@@ -391,6 +393,185 @@ describe("Card Studio, CCv2 JSON/PNG Round-Trip & Favorites", () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(saved?.name).toBe("Rowan");
     expect(saved?.spec).toBe("chara_card_v2");
+  });
+
+  test("openModal onRequestClose blocks backdrop dismissal when returning false and closes when true", async () => {
+    const doc = setupDomWithBody();
+    const dialog = doc.createElement("dialog") as unknown as ShimNode & {
+      getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+      dispatch: (t: string, ev: unknown) => void;
+    };
+    const panel = doc.createElement("div") as unknown as ShimNode & {
+      getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+    };
+    panel.className = "rp-dialog__panel";
+    panel.getBoundingClientRect = () => ({ left: 100, top: 100, right: 300, bottom: 300 });
+    dialog.appendChild(panel);
+    (doc.body as unknown as ShimNode).appendChild(dialog);
+
+    let allowClose = false;
+    openModal({
+      element: dialog as unknown as HTMLElement,
+      onRequestClose: async () => allowClose,
+    });
+    expect(isOpen(dialog as unknown as HTMLElement)).toBe(true);
+
+    // Backdrop click outside panel -> blocked
+    dialog.dispatch("pointerdown", { target: dialog });
+    dialog.dispatch("click", { target: dialog, clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(isOpen(dialog as unknown as HTMLElement)).toBe(true);
+
+    // Backdrop click when allowed -> closes
+    allowClose = true;
+    dialog.dispatch("pointerdown", { target: dialog });
+    dialog.dispatch("click", { target: dialog, clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(isOpen(dialog as unknown as HTMLElement)).toBe(false);
+    closeModal(dialog as unknown as HTMLElement);
+  });
+
+  test("openCardEditor prompts before discarding unsaved edits on backdrop click", async () => {
+    const doc = setupDomWithBody();
+
+    // Untouched editor closes immediately on backdrop click.
+    const cleanModal = openCardEditor({ card: null });
+    const cleanDialog = cleanModal.element as unknown as ShimNode & {
+      dispatch: (t: string, ev: unknown) => void;
+      querySelector: (s: string) => ShimNode | null;
+    };
+    const cleanPanel = cleanDialog.querySelector(".rp-dialog__panel") as unknown as {
+      getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+    };
+    cleanPanel.getBoundingClientRect = () => ({ left: 100, top: 100, right: 400, bottom: 400 });
+    cleanDialog.dispatch("pointerdown", { target: cleanDialog });
+    cleanDialog.dispatch("click", { target: cleanDialog, clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(isOpen(cleanModal.element)).toBe(false);
+
+    // Dirty editor shows "Discard unsaved changes?" confirmation on backdrop click.
+    const dirtyModal = openCardEditor({ card: null });
+    const dirtyDialog = dirtyModal.element as unknown as ShimNode & {
+      dispatch: (t: string, ev: unknown) => void;
+      querySelector: (s: string) => ShimNode | null;
+    };
+    const dirtyPanel = dirtyDialog.querySelector(".rp-dialog__panel") as unknown as {
+      getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+    };
+    dirtyPanel.getBoundingClientRect = () => ({ left: 100, top: 100, right: 400, bottom: 400 });
+    (byId(dirtyModal.element, "rp-card-name") as unknown as HTMLInputElement).value = "Edited Name";
+
+    dirtyDialog.dispatch("pointerdown", { target: dirtyDialog });
+    dirtyDialog.dispatch("click", { target: dirtyDialog, clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Confirmation dialog is open; editor remains open.
+    expect(isOpen(dirtyModal.element)).toBe(true);
+    const bodyNodes = (doc.body as unknown as ShimNode).descendants();
+    const confirmDialog = bodyNodes.find(
+      (n) =>
+        n.tagName === "DIALOG" &&
+        n !== dirtyDialog &&
+        n.descendants().some((d) => d.textContent?.includes("Discard unsaved changes?")),
+    );
+    expect(confirmDialog).toBeTruthy();
+
+    // Click "Keep editing" -> editor stays open.
+    const keepBtn = confirmDialog!.descendants().find(
+      (n) => n.tagName === "BUTTON" && n.textContent === "Keep editing",
+    );
+    expect(keepBtn).toBeTruthy();
+    click(keepBtn!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(isOpen(dirtyModal.element)).toBe(true);
+
+    // Trigger backdrop again and click "Discard" -> editor closes.
+    dirtyDialog.dispatch("pointerdown", { target: dirtyDialog });
+    dirtyDialog.dispatch("click", { target: dirtyDialog, clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 10));
+    const confirmDialog2 = (doc.body as unknown as ShimNode).descendants().find(
+      (n) =>
+        n.tagName === "DIALOG" &&
+        n !== dirtyDialog &&
+        n.descendants().some((d) => d.textContent?.includes("Discard unsaved changes?")),
+    );
+    const discardBtn = confirmDialog2!.descendants().find(
+      (n) => n.tagName === "BUTTON" && n.textContent === "Discard",
+    );
+    click(discardBtn!);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(isOpen(dirtyModal.element)).toBe(false);
+  });
+
+  test("openSettingsModal prompts before discarding unsaved engine edits on backdrop click", async () => {
+    setupDomWithBody();
+    const origMatches = ShimNode.prototype.matches;
+    ShimNode.prototype.matches = function (this: ShimNode, selector: string) {
+      if (selector.startsWith("#")) {
+        const id = selector.slice(1);
+        return this.id === id || this.attributes.id === id;
+      }
+      return origMatches.call(this, selector);
+    };
+
+    try {
+      let confirmCount = 0;
+      let confirmResult = false;
+      const baseOpts = {
+        getSettings: () => ({ apiEndpoint: "https://api.example.com/v1", apiKey: "", model: "m1" }),
+        saveSettings: () => {},
+        listPersonas: () => [],
+        listDirectives: () => [],
+        confirmAction: async () => {
+          confirmCount += 1;
+          return confirmResult;
+        },
+      };
+
+      // Clean settings modal closes immediately without prompting.
+      const clean = openSettingsModal(baseOpts);
+      const cleanDialog = clean.element as unknown as ShimNode & {
+        dispatch: (t: string, ev: unknown) => void;
+        querySelector: (s: string) => ShimNode | null;
+      };
+      const cleanPanel = cleanDialog.querySelector(".rp-dialog__panel") as unknown as {
+        getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+      };
+      cleanPanel.getBoundingClientRect = () => ({ left: 100, top: 100, right: 400, bottom: 400 });
+      cleanDialog.dispatch("pointerdown", { target: cleanDialog });
+      cleanDialog.dispatch("click", { target: cleanDialog, clientX: 10, clientY: 10 });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(confirmCount).toBe(0);
+      expect(isOpen(clean.element)).toBe(false);
+
+      // Dirty engine field triggers confirmation; stays open when rejected, closes when confirmed.
+      const dirty = openSettingsModal(baseOpts);
+      const dirtyDialog = dirty.element as unknown as ShimNode & {
+        dispatch: (t: string, ev: unknown) => void;
+        querySelector: (s: string) => ShimNode | null;
+      };
+      const dirtyPanel = dirtyDialog.querySelector(".rp-dialog__panel") as unknown as {
+        getBoundingClientRect?: () => { left: number; top: number; right: number; bottom: number };
+      };
+      dirtyPanel.getBoundingClientRect = () => ({ left: 100, top: 100, right: 400, bottom: 400 });
+      (byId(dirty.element, "popup-api-endpoint") as unknown as HTMLInputElement).value = "https://changed.example.com/v1";
+
+      confirmResult = false;
+      dirtyDialog.dispatch("pointerdown", { target: dirtyDialog });
+      dirtyDialog.dispatch("click", { target: dirtyDialog, clientX: 10, clientY: 10 });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(confirmCount).toBe(1);
+      expect(isOpen(dirty.element)).toBe(true);
+
+      confirmResult = true;
+      dirtyDialog.dispatch("pointerdown", { target: dirtyDialog });
+      dirtyDialog.dispatch("click", { target: dirtyDialog, clientX: 10, clientY: 10 });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(confirmCount).toBe(2);
+      expect(isOpen(dirty.element)).toBe(false);
+    } finally {
+      ShimNode.prototype.matches = origMatches;
+    }
   });
 });
 

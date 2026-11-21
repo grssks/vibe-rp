@@ -426,7 +426,28 @@ export function openSettingsModal(options = {}) {
     if (!closeModal(dialog)) cleanup();
   }
 
-  dialog.querySelector(".rp-dialog__close").addEventListener("click", close);
+  let confirmingDiscard = false;
+  async function confirmDiscard() {
+    if (!engine.isDirty?.()) return true;
+    if (confirmingDiscard) return false;
+    confirmingDiscard = true;
+    try {
+      return await (options.confirmAction || confirmAction)({
+        title: "Discard unsaved changes?",
+        body: "Your edits haven't been saved yet.",
+        confirmLabel: "Discard",
+        cancelLabel: "Keep editing",
+        tone: "danger",
+        initialFocus: "cancel",
+      });
+    } finally {
+      confirmingDiscard = false;
+    }
+  }
+
+  dialog.querySelector(".rp-dialog__close").addEventListener("click", async () => {
+    if (await confirmDiscard()) close();
+  });
 
   // Select the requested tab BEFORE opening. `openModal` moves focus to the
   // selected tab on the next frame, and auto activation treats a focus change
@@ -441,6 +462,7 @@ export function openSettingsModal(options = {}) {
   openModal({
     element: dialog,
     onClose: cleanup,
+    onRequestClose: confirmDiscard,
     initialFocus: tablist.querySelector('[aria-selected="true"]'),
   });
 

@@ -95,6 +95,7 @@ export function bindDismissable({ element, isOpen: isOpenFn, onDismiss, trigger 
   if (!element || typeof isOpenFn !== "function" || typeof onDismiss !== "function") return () => {};
   const onPointerDown = (event) => {
     if (!isOpenFn()) return;
+    if (topModal()) return;
     const target = event.target;
     if (element.contains(target)) return;
     if (trigger && (trigger === target || trigger.contains(target))) return;
@@ -154,7 +155,7 @@ function onKeydown(event) {
     // The topmost dialog consumes Escape. Nested dialogs must not fall
     // through and close the dialog underneath them.
     event.preventDefault();
-    closeModal(dialog);
+    requestCloseModal(entry, "escape");
     return;
   }
 
@@ -199,11 +200,33 @@ export function topModal() {
   return stack.length ? stack[stack.length - 1].element : null;
 }
 
+function requestCloseModal(entry, reason) {
+  if (!entry || entry.closing || !isOpen(entry.element)) return;
+  if (typeof entry.onRequestClose !== "function") {
+    closeModal(entry.element);
+    return;
+  }
+  entry.closing = true;
+  Promise.resolve()
+    .then(() => entry.onRequestClose(reason))
+    .then(
+      (allowed) => {
+        entry.closing = false;
+        if (allowed !== false && isOpen(entry.element)) {
+          closeModal(entry.element);
+        }
+      },
+      () => {
+        entry.closing = false;
+      },
+    );
+}
+
 /**
  * Opens `element`. Returns a function that closes it, so a caller can wire a
  * close button without repeating the element reference.
  */
-export function openModal({ element, trigger = null, onClose = null, initialFocus = null } = {}) {
+export function openModal({ element, trigger = null, onClose = null, onRequestClose = null, initialFocus = null } = {}) {
   if (!element) return () => {};
   if (isOpen(element)) return () => closeModal(element);
 
@@ -217,7 +240,7 @@ export function openModal({ element, trigger = null, onClose = null, initialFocu
   }
   element.classList.add("open");
 
-  const entry = { element, opener, onClose };
+  const entry = { element, opener, onClose, onRequestClose, closing: false };
   stack.push(entry);
   installListener();
   syncBackgroundInert();
@@ -227,7 +250,7 @@ export function openModal({ element, trigger = null, onClose = null, initialFocu
   // its panel, so a drag-out text selection cannot dismiss it.
   entry.unbindBackdrop = bindBackdropDismiss(element, () => {
     if (element !== topModal()) return;
-    closeModal(element);
+    requestCloseModal(entry, "backdrop");
   });
 
   // A dialog can close without going through `closeModal` (a
@@ -255,7 +278,7 @@ export function openModal({ element, trigger = null, onClose = null, initialFocu
   const onCancel = (event) => {
     event.preventDefault();
     if (document.activeElement?.closest?.('[data-escape-local="true"]')) return;
-    closeModal(element);
+    requestCloseModal(entry, "escape");
   };
   element.addEventListener("cancel", onCancel);
   entry.onCancel = onCancel;

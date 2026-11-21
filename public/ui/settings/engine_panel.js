@@ -57,7 +57,7 @@ function fillModels(select, models, selected, { placeholder = MODEL_PLACEHOLDER 
 
 export function mountEnginePanel(root, options = {}) {
   const { getSettings, saveSettings, fetchModels, saveSession, host } = options;
-  if (!root) return { refresh: () => {}, destroy: () => {} };
+  if (!root) return { refresh: () => {}, destroy: () => {}, isDirty: () => false };
 
   const endpoint = qs(root, "#popup-api-endpoint");
   const apiKey = qs(root, "#popup-api-key");
@@ -164,6 +164,28 @@ export function mountEnginePanel(root, options = {}) {
     }
   }
 
+  let savedSnapshot = "";
+  const snapshot = () =>
+    JSON.stringify({
+      apiEndpoint: endpoint?.value.trim() ?? "",
+      apiKey: apiKey?.value.trim() ?? "",
+      model:
+        modelInput && !modelInput.hidden && modelInput.value?.trim()
+          ? modelInput.value.trim()
+          : (modelSelect?.value ?? ""),
+      choiceModel:
+        choiceInput && !choiceInput.hidden && choiceInput.value?.trim()
+          ? choiceInput.value.trim()
+          : (choiceSelect?.value ?? ""),
+      summaryModel:
+        summaryInput && !summaryInput.hidden && summaryInput.value?.trim()
+          ? summaryInput.value.trim()
+          : (summarySelect?.value ?? ""),
+      reasoningEffort: reasoningSelect?.value ?? "",
+      choiceDeliberation: deliberationSelect?.value || "auto",
+      sessionInput: sessionInput?.value.trim() ?? "",
+    });
+
   function refresh() {
     const settings = getSettings?.() || {};
     if (endpoint) endpoint.value = settings.apiEndpoint || "";
@@ -183,6 +205,7 @@ export function mountEnginePanel(root, options = {}) {
     if (deliberationSelect) deliberationSelect.value = settings.choiceDeliberation || "auto";
     renderLearnedCaps();
     renderSessionStatus();
+    savedSnapshot = snapshot();
   }
 
   function bindCustomModelToggle(btn, input, select) {
@@ -275,6 +298,7 @@ export function mountEnginePanel(root, options = {}) {
       reasoningEffort: reasoningSelect?.value ?? "",
       choiceDeliberation: deliberationSelect?.value || "auto",
     });
+    savedSnapshot = snapshot();
     announce("Engine settings saved.");
   });
 
@@ -382,6 +406,7 @@ export function mountEnginePanel(root, options = {}) {
     if (result?.ok) {
       if (sessionInput) sessionInput.value = "";
       renderSessionStatus();
+      savedSnapshot = snapshot();
       announce(result.message || "Session saved.");
     } else if (result?.message) {
       announce(result.message, "danger");
@@ -437,6 +462,7 @@ export function mountEnginePanel(root, options = {}) {
 
   return {
     refresh,
+    isDirty: () => snapshot() !== savedSnapshot,
     destroy() {
       destroyed = true;
       for (const off of cleanups) off();

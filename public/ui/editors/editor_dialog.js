@@ -5,6 +5,7 @@
 // close-on-success) is identical and lives here once.
 import { el } from "../dom.js";
 import { openModal, closeModal } from "../modal.js";
+import { confirmAction } from "../confirm.js";
 
 export function openEditorDialog({
   titleId,
@@ -52,6 +53,15 @@ export function openEditorDialog({
     document.body.appendChild(dialog);
     onDialog?.(dialog);
 
+    const snapshotForm = () => {
+      const controls = Array.from(form.querySelectorAll("input, textarea, select")).map((node) =>
+        node.type === "checkbox" || node.type === "radio" ? Boolean(node.checked) : String(node.value ?? ""),
+      );
+      const images = Array.from(form.querySelectorAll("img")).map((img) => img.getAttribute("src") || "");
+      return JSON.stringify({ controls, images });
+    };
+    const initialSnapshot = snapshotForm();
+
     // The error element carries its role from the start, so it is already a
     // live region by the time any text lands in it — an element that only
     // becomes an alert as it is filled is not reliably announced. The field
@@ -91,8 +101,31 @@ export function openEditorDialog({
 
     const saveBtn = dialog.querySelector('[data-role="save"]');
 
-    dialog.querySelector('[data-role="close"]').addEventListener("click", finish);
-    dialog.querySelector('[data-role="cancel"]').addEventListener("click", finish);
+    let confirmingDiscard = false;
+    const confirmDiscard = async () => {
+      if (busy) return false;
+      if (snapshotForm() === initialSnapshot) return true;
+      if (confirmingDiscard) return false;
+      confirmingDiscard = true;
+      try {
+        return await confirmAction({
+          title: "Discard unsaved changes?",
+          body: "Your edits haven't been saved yet.",
+          confirmLabel: "Discard",
+          cancelLabel: "Keep editing",
+          tone: "danger",
+          initialFocus: "cancel",
+        });
+      } finally {
+        confirmingDiscard = false;
+      }
+    };
+    const requestClose = async () => {
+      if (await confirmDiscard()) finish();
+    };
+
+    dialog.querySelector('[data-role="close"]').addEventListener("click", requestClose);
+    dialog.querySelector('[data-role="cancel"]').addEventListener("click", requestClose);
 
     saveBtn.addEventListener("click", async () => {
       if (busy) return;
@@ -128,6 +161,11 @@ export function openEditorDialog({
       dialog.querySelector('[data-role="save"]').click();
     });
 
-    openModal({ element: dialog, onClose: finish, initialFocus: initialFocus || nameInput });
+    openModal({
+      element: dialog,
+      onClose: finish,
+      onRequestClose: confirmDiscard,
+      initialFocus: initialFocus || nameInput,
+    });
   });
 }

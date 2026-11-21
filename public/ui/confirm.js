@@ -67,7 +67,7 @@ function buildDialog({ title, body, confirmLabel, cancelLabel, tone }) {
   panel.appendChild(footer);
 
   dialog.appendChild(panel);
-  return dialog;
+  return { dialog, confirm, cancel };
 }
 
 /**
@@ -84,7 +84,7 @@ export function confirmAction({
   initialFocus = "confirm",
 } = {}) {
   return new Promise((resolve) => {
-    const dialog = buildDialog({ title, body, confirmLabel, cancelLabel, tone });
+    const { dialog, confirm, cancel } = buildDialog({ title, body, confirmLabel, cancelLabel, tone });
     document.body.appendChild(dialog);
 
     let settled = false;
@@ -96,12 +96,10 @@ export function confirmAction({
       resolve(value);
     };
 
-    dialog.querySelector('[data-role="confirm"]').addEventListener("click", () => finish(true));
-    dialog.querySelector('[data-role="cancel"]').addEventListener("click", () => finish(false));
+    confirm.addEventListener("click", () => finish(true));
+    cancel.addEventListener("click", () => finish(false));
 
-    const focusTarget = initialFocus === "cancel"
-      ? dialog.querySelector('[data-role="cancel"]')
-      : dialog.querySelector('[data-role="confirm"]');
+    const focusTarget = initialFocus === "cancel" ? cancel : confirm;
 
     openModal({
       element: dialog,

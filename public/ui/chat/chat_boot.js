@@ -572,13 +572,49 @@ function setLedgerOpen(open) {
   if (open) { updateContextStats(); $("close-ledger-btn").focus(); }
   else ledgerBtn.focus();
 }
-ledgerBtn.addEventListener("click", () => setLedgerOpen(ledgerSheet.dataset.open !== "true"));
-$("close-ledger-btn").addEventListener("click", () => setLedgerOpen(false));
+function isLedgerDirty() {
+  const noteInput = ledgerSheet.querySelector("[data-context-authors-note]");
+  const ledgerInput = ledgerSheet.querySelector("[data-context-ledger]");
+  const savedNote = controller.activeSession?.authorsNote || "";
+  const savedLedger = controller.activeSession?.contextLedger || "";
+  if (noteInput && noteInput.value !== savedNote) return true;
+  if (ledgerInput && ledgerInput.value !== savedLedger) return true;
+  return false;
+}
+
+let confirmingLedgerDiscard = false;
+async function requestCloseLedger() {
+  if (!isLedgerDirty()) {
+    setLedgerOpen(false);
+    return;
+  }
+  if (confirmingLedgerDiscard) return;
+  confirmingLedgerDiscard = true;
+  try {
+    const ok = await confirmAction({
+      title: "Discard unsaved changes?",
+      body: "Your edits haven't been saved yet.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      tone: "danger",
+      initialFocus: "cancel",
+    });
+    if (ok) setLedgerOpen(false);
+  } finally {
+    confirmingLedgerDiscard = false;
+  }
+}
+
+ledgerBtn.addEventListener("click", () => {
+  if (ledgerSheet.dataset.open === "true") requestCloseLedger();
+  else setLedgerOpen(true);
+});
+$("close-ledger-btn").addEventListener("click", () => requestCloseLedger());
 
 bindDismissable({
   element: ledgerSheet,
   isOpen: () => ledgerSheet.dataset.open === "true" && !ledgerSheet.hidden,
-  onDismiss: () => setLedgerOpen(false),
+  onDismiss: () => requestCloseLedger(),
   trigger: ledgerBtn,
 });
 
