@@ -44,6 +44,7 @@ export function createChoicePanel({
   onRegenerate = () => {},
   onRetry = () => {},
   autoFocus = () => true,
+  holdDurationMs = 520,
 } = {}) {
   if (!mount) throw new Error("createChoicePanel needs a mount element");
 
@@ -99,7 +100,8 @@ export function createChoicePanel({
       "aria-controls": "choice-steer-bar",
     },
   });
-  actions.append(genBtn, retryBtn, regenBtn, steerToggleBtn);
+  const editHint = el("span", { class: "rp-choices__hint", text: "Hold a choice to edit", hidden: true });
+  actions.append(genBtn, retryBtn, regenBtn, steerToggleBtn, editHint);
 
   const steerBar = el("div", {
     class: "rp-choices__steer-bar",
@@ -234,18 +236,81 @@ export function createChoicePanel({
     setSteerBarVisible(false);
     steerToggleBtn.focus();
   });
-  // Buttons are rebuilt per set, so selection and edit are delegated to the list.
+  let holdState = null;
+  let suppressNextClickId = null;
+
+  function cancelHold() {
+    if (!holdState) return;
+    clearTimeout(holdState.timer);
+    holdState.btn.classList.remove("is-holding");
+    holdState = null;
+  }
+
+  // Buttons are rebuilt per set, so selection and hold-to-edit are delegated to the list.
+  list.addEventListener("pointerdown", (event) => {
+    if (typeof onEdit !== "function") return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const btn = event.target?.closest?.("[data-choice-id]");
+    if (!btn || btn.disabled) return;
+    const id = btn.getAttribute("data-choice-id");
+    const found = state.choices.find((c) => c.id === id);
+    if (!found) return;
+    cancelHold();
+    suppressNextClickId = null;
+    btn.classList.add("is-holding");
+    const timer = setTimeout(() => {
+      btn.classList.remove("is-holding");
+      holdState = null;
+      suppressNextClickId = id;
+      onEdit(found);
+    }, holdDurationMs);
+    holdState = {
+      timer,
+      btn,
+      choiceId: id,
+      startX: Number(event.clientX) || 0,
+      startY: Number(event.clientY) || 0,
+    };
+  });
+
+  list.addEventListener("pointermove", (event) => {
+    if (!holdState) return;
+    const dx = (Number(event.clientX) || 0) - holdState.startX;
+    const dy = (Number(event.clientY) || 0) - holdState.startY;
+    if (Math.hypot(dx, dy) > 10) cancelHold();
+  });
+
+  list.addEventListener("pointerup", cancelHold);
+  list.addEventListener("pointercancel", cancelHold);
+  list.addEventListener("pointerleave", cancelHold);
+
+  list.addEventListener("contextmenu", (event) => {
+    if (holdState || event.target?.closest?.("[data-can-edit='true']")) {
+      event.preventDefault();
+    }
+  });
+
+  list.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key !== "Enter" || !event.shiftKey || typeof onEdit !== "function") return;
+    const btn = event.target?.closest?.("[data-choice-id]");
+    if (!btn || btn.disabled) return;
+    const id = btn.getAttribute("data-choice-id");
+    const found = state.choices.find((c) => c.id === id);
+    if (!found) return;
+    event.preventDefault();
+    onEdit(found);
+  });
+
   list.addEventListener("click", (event) => {
-    const editBtn = event.target.closest("[data-edit-choice-id]");
-    if (editBtn && !editBtn.disabled) {
-      const id = editBtn.getAttribute("data-edit-choice-id");
-      const found = state.choices.find((c) => c.id === id);
-      if (found) onEdit?.(found);
+    const btn = event.target?.closest?.("[data-choice-id]");
+    if (!btn || btn.disabled) return;
+    const id = btn.getAttribute("data-choice-id");
+    if (suppressNextClickId === id) {
+      suppressNextClickId = null;
       return;
     }
-    const btn = event.target.closest("[data-choice-id]");
-    if (!btn || btn.disabled) return;
-    onSelect(btn.getAttribute("data-choice-id"));
+    onSelect(id);
   });
 
   /** Numeric shortcuts, only while choices wait and no field has focus. */
@@ -311,23 +376,17 @@ export function createChoicePanel({
     if (disabled) btn.disabled = true;
     if (selected) btn.classList.add("is-selected");
     if (typeof onEdit === "function") {
-      const editBtn = el("button", {
-        type: "button",
-        class: "rp-btn rp-btn--ghost rp-btn--sm rp-choices__edit-btn",
-        text: "Edit",
-        attrs: {
-          "data-edit-choice-id": choice.id,
-          "aria-label": "Edit choice in composer",
-          title: "Load into composer to edit before sending",
-        },
-      });
-      if (disabled) editBtn.disabled = true;
-      return el("div", { class: "rp-choices__item" }, [btn, editBtn]);
+      btn.setAttribute("data-can-edit", "true");
+      btn.title = btn.title
+        ? `${btn.title}\n\nHold to edit in composer`
+        : "Hold to edit in composer";
     }
     return btn;
   }
 
   function renderList() {
+    cancelHold();
+    suppressNextClickId = null;
     if (state.status === "generating") {
       const skeletons = [1, 2, 3].map(() =>
         el("div", { class: "rp-choice-skeleton", attrs: { "aria-hidden": "true" } })
@@ -409,6 +468,7 @@ export function createChoicePanel({
     regenBtn.disabled = !ready;
     steerToggleBtn.hidden = !steerable;
     steerToggleBtn.disabled = !steerable;
+    editHint.hidden = !(ready && typeof onEdit === "function" && state.choices.length > 0);
     if (!steerable) setSteerBarVisible(false);
 
     const arrived = ready && lastStatus !== "ready";
@@ -455,6 +515,7 @@ export function createChoicePanel({
     },
     setCollapsed,
     destroy() {
+      cancelHold();
       document.removeEventListener("keydown", onKeydown);
       mount.replaceChildren();
     },

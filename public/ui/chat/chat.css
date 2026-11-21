@@ -733,6 +733,12 @@ mark.rp-search-hit.is-current {
     padding-top: var(--space-1);
   }
 
+  .rp-choices__hint {
+    margin-inline-start: 0;
+    flex-basis: 100%;
+    text-align: end;
+  }
+
   /* In normal mode, actions align cleanly below the textarea */
   .rp-composer__actions {
     display: flex;
@@ -982,16 +988,38 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
   color: var(--ink-faint);
 }
 
-/* Choice Mode inline prose preview & Edit button */
-.rp-choices__item {
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-2);
+/* Choice Mode inline prose preview & hold-to-edit progress overlay */
+.rp-choices__option[data-can-edit="true"] {
+  position: relative;
+  overflow: hidden;
+  -webkit-touch-callout: none;
 }
 
-.rp-choices__item > .rp-choices__option {
-  flex: 1;
-  min-width: 0;
+.rp-choices__option[data-can-edit="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: inherit;
+  background-color: rgba(10, 12, 14, 0.34);
+  background-color: color-mix(in srgb, var(--canvas-sunken) 45%, transparent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  opacity: 0;
+  transition: transform 140ms var(--ease-out), opacity 140ms var(--ease-out);
+}
+
+.rp-choices__option[data-can-edit="true"].is-holding::after {
+  opacity: 1;
+  transform: scaleX(1);
+  transition: transform 520ms linear, opacity 80ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-choices__option[data-can-edit="true"].is-holding::after {
+    transition: none;
+  }
 }
 
 .rp-choices__content {
@@ -1011,9 +1039,11 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
   white-space: normal;
 }
 
-.rp-choices__edit-btn {
+.rp-choices__hint {
+  margin-inline-start: auto;
   align-self: center;
-  flex: none;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
 }
 
 /* Context Inspector interactive controls */

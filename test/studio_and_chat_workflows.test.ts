@@ -229,14 +229,16 @@ describe("Reasoning / Thinking blocks", () => {
 });
 
 describe("Choice Mode inline prose, Edit & idle Generate", () => {
-  test("choice_panel renders .rp-choices__prose, fires onEdit, and shows Generate choices when idle & canGenerate", () => {
+  test("choice_panel renders .rp-choices__prose, fires onEdit on hold, and shows Generate choices when idle & canGenerate", async () => {
     const doc = setupDomWithBody();
     const mount = doc.createElement("div") as unknown as HTMLElement;
     let edited: { id?: string } | null = null;
     let retried = 0;
+    let selected = 0;
     const panel = createChoicePanel({
       mount,
-      onSelect: () => {},
+      holdDurationMs: 25,
+      onSelect: () => { selected += 1; },
       onEdit: (choice: { id?: string }) => { edited = choice; },
       onRetry: () => { retried += 1; },
     });
@@ -260,10 +262,33 @@ describe("Choice Mode inline prose, Edit & idle Generate", () => {
     });
     const prose = mount.querySelector(".rp-choices__prose");
     expect(prose?.textContent).toBe("She lowers her lantern and steps back.");
-    const editBtn = mount.querySelector("[data-edit-choice-id]") as unknown as Parameters<typeof click>[0] | null;
-    expect(editBtn).not.toBeNull();
-    click(editBtn!);
+    expect(mount.querySelector("[data-edit-choice-id]")).toBeNull();
+
+    const listEl = mount.querySelector(".rp-choices__list") as unknown as {
+      dispatch: (t: string, ev: unknown) => void;
+    };
+    const choiceBtn = mount.querySelector("[data-choice-id]") as unknown as ShimNode & {
+      classList: { contains: (c: string) => boolean };
+    };
+    expect(choiceBtn.getAttribute("data-can-edit")).toBe("true");
+
+    // Short tap submits without editing
+    listEl.dispatch("pointerdown", { target: choiceBtn, pointerType: "touch", clientX: 10, clientY: 10 });
+    expect(choiceBtn.classList.contains("is-holding")).toBe(true);
+    listEl.dispatch("pointerup", { target: choiceBtn });
+    expect(choiceBtn.classList.contains("is-holding")).toBe(false);
+    click(choiceBtn as unknown as Parameters<typeof click>[0]);
+    expect(selected).toBe(1);
+    expect(edited).toBeNull();
+
+    // Hold triggers onEdit and suppresses the subsequent click
+    listEl.dispatch("pointerdown", { target: choiceBtn, pointerType: "touch", clientX: 10, clientY: 10 });
+    expect(choiceBtn.classList.contains("is-holding")).toBe(true);
+    await new Promise((r) => setTimeout(r, 40));
+    expect(choiceBtn.classList.contains("is-holding")).toBe(false);
     expect(edited?.id).toBe("c1");
+    click(choiceBtn as unknown as Parameters<typeof click>[0]);
+    expect(selected).toBe(1);
   });
 });
 
