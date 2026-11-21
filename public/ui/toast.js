@@ -74,9 +74,30 @@ export function createToastHost({ root = document.body, region: provided = null 
     root.appendChild(region);
   }
   region.setAttribute("data-rp-keep-active", "");
-
+  if (typeof region.showPopover === "function") {
+    region.setAttribute("popover", "manual");
+  }
 
   const live = new Map();
+
+  function promoteTopLayer() {
+    if (typeof region.showPopover !== "function") return;
+    try {
+      if (region.matches?.(":popover-open")) region.hidePopover();
+      region.showPopover();
+    } catch (_) {
+      /* fall back to z-index when top-layer promotion is unavailable */
+    }
+  }
+
+  function demoteTopLayer() {
+    if (typeof region.hidePopover !== "function" || live.size > 0) return;
+    try {
+      if (region.matches?.(":popover-open")) region.hidePopover();
+    } catch (_) {
+      /* ignore if already hidden */
+    }
+  }
 
   function remove(id) {
     const entry = live.get(id);
@@ -84,6 +105,7 @@ export function createToastHost({ root = document.body, region: provided = null 
     live.delete(id);
     clearTimeout(entry.timer);
     entry.node.remove();
+    demoteTopLayer();
     syncReservedBand(region);
   }
 
@@ -165,6 +187,7 @@ export function createToastHost({ root = document.body, region: provided = null 
 
     if (prefersReducedMotion()) node.classList.add("is-shown");
     region.appendChild(node);
+    promoteTopLayer();
     // Measured after the append, so the band matches the stack that is actually
     // on screen rather than the one that was there before it.
     syncReservedBand(region);
@@ -185,6 +208,7 @@ export function createToastHost({ root = document.body, region: provided = null 
       entry.node.remove();
     }
     live.clear();
+    demoteTopLayer();
   }
 
   function destroy() {

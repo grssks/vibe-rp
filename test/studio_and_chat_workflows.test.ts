@@ -15,7 +15,7 @@ import { downloadSessionJsonFile } from "../public/ui/data_transfer.js";
 import { sortCards } from "../public/ui/character_card.js";
 import { createLibraryController } from "../public/ui/library_controller.js";
 import { openCardEditor } from "../public/ui/editors/card_editor.js";
-import { openSettingsModal } from "../public/ui/settings/settings_modal.js";
+import { createToastHost } from "../public/ui/toast.js";
 import { openModal, closeModal, isOpen } from "../public/ui/modal.js";
 import {
   elenaCard,
@@ -505,6 +505,7 @@ describe("Card Studio, CCv2 JSON/PNG Round-Trip & Favorites", () => {
 
   test("openSettingsModal prompts before discarding unsaved engine edits on backdrop click", async () => {
     setupDomWithBody();
+    const { openSettingsModal } = await import("../public/ui/settings/settings_modal.js");
     const origMatches = ShimNode.prototype.matches;
     ShimNode.prototype.matches = function (this: ShimNode, selector: string) {
       if (selector.startsWith("#")) {
@@ -569,6 +570,119 @@ describe("Card Studio, CCv2 JSON/PNG Round-Trip & Favorites", () => {
       await new Promise((r) => setTimeout(r, 10));
       expect(confirmCount).toBe(2);
       expect(isOpen(dirty.element)).toBe(false);
+    } finally {
+      ShimNode.prototype.matches = origMatches;
+    }
+  });
+
+  test("saving an engine profile preserves URL/key for Test connection and createToastHost promotes top-layer popover", async () => {
+    const doc = setupDomWithBody();
+    const { openSettingsModal } = await import("../public/ui/settings/settings_modal.js");
+    const origMatches = ShimNode.prototype.matches;
+    ShimNode.prototype.matches = function (this: ShimNode, selector: string) {
+      if (selector.startsWith("#")) {
+        const id = selector.slice(1);
+        return this.id === id || this.attributes.id === id;
+      }
+      return origMatches.call(this, selector);
+    };
+
+    try {
+      let state: Record<string, unknown> = {
+        apiEndpoint: "",
+        apiKey: "",
+        model: "",
+        apiProfiles: [],
+        activeProfileId: "",
+      };
+      const toasts: Array<{ msg: string; tone?: string }> = [];
+      let fetchedWith: { endpoint?: string; key?: string } | null = null;
+
+      const modal = openSettingsModal({
+        getSettings: () => state,
+        saveSettings: (patch: Record<string, unknown>) => {
+          state = { ...state, ...patch };
+        },
+        fetchModels: async (args: { endpoint?: string; key?: string }) => {
+          fetchedWith = args;
+          return [{ id: "gpt-4o" }];
+        },
+        listPersonas: () => [],
+        listDirectives: () => [],
+        host: {
+          toast: (msg: string, opts?: { tone?: string }) => {
+            toasts.push({ msg, tone: opts?.tone });
+          },
+        },
+      });
+
+      const epInput = byId(modal.element, "popup-api-endpoint") as unknown as HTMLInputElement;
+      const keyInput = byId(modal.element, "popup-api-key") as unknown as HTMLInputElement;
+      const profileSelect = byId(modal.element, "popup-profile-select") as unknown as HTMLSelectElement & ShimNode;
+      const choiceSelect = byId(modal.element, "popup-choice-model-select") as unknown as HTMLSelectElement;
+      const choiceInput = byId(modal.element, "popup-choice-model-input") as unknown as HTMLInputElement;
+      const saveProfBtn = byId(modal.element, "popup-save-profile-btn") as unknown as ShimNode;
+      const testBtn = byId(modal.element, "popup-test-conn-btn") as unknown as ShimNode;
+
+      // Hidden custom choiceInput should not override visible choiceSelect.
+      choiceInput.hidden = true;
+      choiceInput.value = "stale-hidden-choice";
+      const opt = doc.createElement("option") as unknown as HTMLOptionElement;
+      opt.value = "selected-choice";
+      opt.textContent = "selected-choice";
+      choiceSelect.appendChild(opt);
+      choiceSelect.value = "selected-choice";
+
+      epInput.value = "https://openrouter.ai/api/v1";
+      keyInput.value = "sk-test-123";
+      click(saveProfBtn);
+
+      expect(state.apiEndpoint).toBe("https://openrouter.ai/api/v1");
+      expect(state.apiKey).toBe("sk-test-123");
+      expect(state.choiceModel).toBe("selected-choice");
+      expect(epInput.value).toBe("https://openrouter.ai/api/v1");
+      expect(keyInput.value).toBe("sk-test-123");
+
+      // Switching profile dropdown to "" ("Select saved profile...") keeps typed inputs intact.
+      profileSelect.value = "";
+      (profileSelect as unknown as ShimNode).dispatch("change");
+      expect(epInput.value).toBe("https://openrouter.ai/api/v1");
+      expect(keyInput.value).toBe("sk-test-123");
+
+      click(testBtn);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(fetchedWith).toEqual({ endpoint: "https://openrouter.ai/api/v1", key: "sk-test-123" });
+      expect(toasts.some((t) => t.tone === "success" && t.msg.includes("Connection OK"))).toBe(true);
+
+      // Toast host top-layer popover promotion & demotion
+      let popoverOpen = false;
+      let showCalls = 0;
+      let hideCalls = 0;
+      const region = doc.createElement("div") as unknown as ShimNode & {
+        showPopover?: () => void;
+        hidePopover?: () => void;
+      };
+      region.className = "rp-toast-region";
+      region.showPopover = () => {
+        popoverOpen = true;
+        showCalls += 1;
+      };
+      region.hidePopover = () => {
+        popoverOpen = false;
+        hideCalls += 1;
+      };
+      const origRegionMatches = region.matches.bind(region);
+      region.matches = (sel: string) => (sel === ":popover-open" ? popoverOpen : origRegionMatches(sel));
+      (doc.body as unknown as ShimNode).appendChild(region);
+
+      const host = createToastHost({ root: doc.body as unknown as HTMLElement, region: region as unknown as HTMLElement });
+      expect(region.getAttribute("popover")).toBe("manual");
+      const dismiss = host.toast("Connection OK", { tone: "success", duration: 0 });
+      expect(showCalls).toBe(1);
+      expect(popoverOpen).toBe(true);
+      dismiss();
+      expect(hideCalls).toBe(1);
+      expect(popoverOpen).toBe(false);
     } finally {
       ShimNode.prototype.matches = origMatches;
     }

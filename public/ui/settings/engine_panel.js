@@ -98,7 +98,7 @@ export function mountEnginePanel(root, options = {}) {
 
   function announce(message, tone) {
     if (status) status.textContent = message;
-    if (tone === "danger") host?.toast?.(message, { tone: "danger" });
+    if (tone === "danger" || tone === "success") host?.toast?.(message, { tone });
   }
 
   function renderProfiles(settings) {
@@ -164,23 +164,19 @@ export function mountEnginePanel(root, options = {}) {
     }
   }
 
+  const readModelField = (input, select) =>
+    input && !input.hidden && input.value?.trim()
+      ? input.value.trim()
+      : (select?.value ?? "");
+
   let savedSnapshot = "";
   const snapshot = () =>
     JSON.stringify({
       apiEndpoint: endpoint?.value.trim() ?? "",
       apiKey: apiKey?.value.trim() ?? "",
-      model:
-        modelInput && !modelInput.hidden && modelInput.value?.trim()
-          ? modelInput.value.trim()
-          : (modelSelect?.value ?? ""),
-      choiceModel:
-        choiceInput && !choiceInput.hidden && choiceInput.value?.trim()
-          ? choiceInput.value.trim()
-          : (choiceSelect?.value ?? ""),
-      summaryModel:
-        summaryInput && !summaryInput.hidden && summaryInput.value?.trim()
-          ? summaryInput.value.trim()
-          : (summarySelect?.value ?? ""),
+      model: readModelField(modelInput, modelSelect),
+      choiceModel: readModelField(choiceInput, choiceSelect),
+      summaryModel: readModelField(summaryInput, summarySelect),
       reasoningEffort: reasoningSelect?.value ?? "",
       choiceDeliberation: deliberationSelect?.value || "auto",
       sessionInput: sessionInput?.value.trim() ?? "",
@@ -246,6 +242,10 @@ export function mountEnginePanel(root, options = {}) {
 
   on(fetchBtn, "click", async () => {
     if (!fetchBtn) return;
+    if (!endpoint?.value.trim()) {
+      announce("Enter an API base URL before fetching models.", "danger");
+      return;
+    }
     const original = fetchBtn.textContent;
     fetchBtn.classList.add("is-loading");
     fetchBtn.disabled = true;
@@ -258,15 +258,14 @@ export function mountEnginePanel(root, options = {}) {
       if (destroyed) return;
       const list = Array.isArray(models) ? models : [];
       saveSettings?.({ availableModels: list });
-      const settings = getSettings?.() || {};
-      fillModels(modelSelect, list, settings.model || "");
-      fillModels(choiceSelect, list, settings.choiceModel || "", {
+      fillModels(modelSelect, list, readModelField(modelInput, modelSelect));
+      fillModels(choiceSelect, list, readModelField(choiceInput, choiceSelect), {
         placeholder: SAME_AS_MAIN,
       });
-      fillModels(summarySelect, list, settings.summaryModel || "", {
+      fillModels(summarySelect, list, readModelField(summaryInput, summarySelect), {
         placeholder: SAME_AS_MAIN,
       });
-      announce(`Fetched ${list.length} ${list.length === 1 ? "model" : "models"}.`);
+      announce(`Fetched ${list.length} ${list.length === 1 ? "model" : "models"}.`, "success");
     } catch (error) {
       if (destroyed) return;
       announce(`Could not fetch models: ${error.message}`, "danger");
@@ -280,15 +279,9 @@ export function mountEnginePanel(root, options = {}) {
   });
 
   on(saveBtn, "click", () => {
-    const rawModel = (modelInput && !modelInput.hidden && modelInput.value?.trim())
-      ? modelInput.value.trim()
-      : (modelSelect?.value ?? "");
-    const rawChoice = (choiceInput && !choiceInput.hidden && choiceInput.value?.trim())
-      ? choiceInput.value.trim()
-      : (choiceSelect?.value ?? "");
-    const rawSummary = (summaryInput && !summaryInput.hidden && summaryInput.value?.trim())
-      ? summaryInput.value.trim()
-      : (summarySelect?.value ?? "");
+    const rawModel = readModelField(modelInput, modelSelect);
+    const rawChoice = readModelField(choiceInput, choiceSelect);
+    const rawSummary = readModelField(summaryInput, summarySelect);
     saveSettings?.({
       apiEndpoint: endpoint?.value.trim() ?? "",
       apiKey: apiKey?.value.trim() ?? "",
@@ -299,7 +292,7 @@ export function mountEnginePanel(root, options = {}) {
       choiceDeliberation: deliberationSelect?.value || "auto",
     });
     savedSnapshot = snapshot();
-    announce("Engine settings saved.");
+    announce("Engine settings saved.", "success");
   });
 
   on(profileSelect, "change", () => {
@@ -308,7 +301,7 @@ export function mountEnginePanel(root, options = {}) {
     const profile = (settings.apiProfiles || []).find((p) => p.id === id);
     if (!profile) {
       saveSettings?.({ activeProfileId: "" });
-      refresh();
+      renderProfiles(getSettings?.() || {});
       return;
     }
     saveSettings?.({
@@ -329,11 +322,9 @@ export function mountEnginePanel(root, options = {}) {
       announce("Enter an API base URL before saving a profile.", "danger");
       return;
     }
-    const rawModel = (modelInput && !modelInput.hidden && modelInput.value?.trim())
-      ? modelInput.value.trim()
-      : (modelSelect?.value ?? "");
-    const rawChoice = choiceInput?.value?.trim() || choiceSelect?.value || "";
-    const rawSummary = summaryInput?.value?.trim() || summarySelect?.value || "";
+    const rawModel = readModelField(modelInput, modelSelect);
+    const rawChoice = readModelField(choiceInput, choiceSelect);
+    const rawSummary = readModelField(summaryInput, summarySelect);
     const settings = getSettings?.() || {};
     const profiles = Array.isArray(settings.apiProfiles) ? [...settings.apiProfiles] : [];
     const currentId = profileSelect?.value || "";
@@ -353,9 +344,18 @@ export function mountEnginePanel(root, options = {}) {
     };
     if (existingIdx >= 0) profiles[existingIdx] = entry;
     else profiles.push(entry);
-    saveSettings?.({ apiProfiles: profiles, activeProfileId: id });
-    refresh();
-    announce(`Saved profile "${name}".`);
+    saveSettings?.({
+      apiProfiles: profiles,
+      activeProfileId: id,
+      apiEndpoint: entry.apiEndpoint,
+      apiKey: entry.apiKey,
+      model: entry.model,
+      choiceModel: entry.choiceModel,
+      summaryModel: entry.summaryModel,
+    });
+    renderProfiles(getSettings?.() || {});
+    savedSnapshot = snapshot();
+    announce(`Saved profile "${name}".`, "success");
   });
 
   on(deleteProfileBtn, "click", () => {
@@ -364,12 +364,16 @@ export function mountEnginePanel(root, options = {}) {
     const settings = getSettings?.() || {};
     const profiles = (settings.apiProfiles || []).filter((p) => p.id !== id);
     saveSettings?.({ apiProfiles: profiles, activeProfileId: "" });
-    refresh();
-    announce("Profile deleted.");
+    renderProfiles(getSettings?.() || {});
+    announce("Profile deleted.", "success");
   });
 
   on(testConnBtn, "click", async () => {
     if (!testConnBtn) return;
+    if (!endpoint?.value.trim()) {
+      announce("Enter an API base URL before testing.", "danger");
+      return;
+    }
     testConnBtn.disabled = true;
     announce("Testing connection...");
     try {
@@ -379,7 +383,7 @@ export function mountEnginePanel(root, options = {}) {
       });
       if (destroyed) return;
       const list = Array.isArray(models) ? models : [];
-      announce(`Connection OK — ${list.length} ${list.length === 1 ? "model" : "models"} reachable.`);
+      announce(`Connection OK — ${list.length} ${list.length === 1 ? "model" : "models"} reachable.`, "success");
     } catch (error) {
       if (destroyed) return;
       announce(`Connection failed: ${error.message}`, "danger");
@@ -407,7 +411,7 @@ export function mountEnginePanel(root, options = {}) {
       if (sessionInput) sessionInput.value = "";
       renderSessionStatus();
       savedSnapshot = snapshot();
-      announce(result.message || "Session saved.");
+      announce(result.message || "Session saved.", "success");
     } else if (result?.message) {
       announce(result.message, "danger");
     }
@@ -423,7 +427,7 @@ export function mountEnginePanel(root, options = {}) {
       const token = parsed ? await refreshSession(parsed, { storageKey: SESSION_STORAGE_KEY }) : null;
       if (destroyed) return;
       renderSessionStatus();
-      announce(token ? "Session token refreshed." : "Could not refresh session token.", token ? undefined : "danger");
+      announce(token ? "Session token refreshed." : "Could not refresh session token.", token ? "success" : "danger");
     } catch (error) {
       if (destroyed) return;
       announce(`Refresh failed: ${error.message}`, "danger");
