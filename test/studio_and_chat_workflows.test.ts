@@ -257,19 +257,26 @@ describe("Choice Mode inline prose, Edit & idle Generate", () => {
     panel.render({
       mode: "choice",
       status: "ready",
-      choices: [{ id: "c1", label: "Quietly", text: "She lowers her lantern and steps back." }],
+      choices: [
+        { id: "c1", label: "Quietly", text: "She lowers her lantern and steps back." },
+        { id: "c2", label: "Press forward", text: "She pushes the door open without waiting." },
+      ],
       canGenerate: true,
     });
-    const prose = mount.querySelector(".rp-choices__prose");
-    expect(prose?.textContent).toBe("She lowers her lantern and steps back.");
+    expect(mount.querySelector(".rp-choices__prose")).toBeNull();
+    expect(mount.querySelector(".rp-choices__more")).toBeNull();
     expect(mount.querySelector("[data-edit-choice-id]")).toBeNull();
 
     const listEl = mount.querySelector(".rp-choices__list") as unknown as {
       dispatch: (t: string, ev: unknown) => void;
     };
-    const choiceBtn = mount.querySelector("[data-choice-id]") as unknown as ShimNode & {
-      classList: { contains: (c: string) => boolean };
-    };
+    const choiceBtns = mount.querySelectorAll("[data-choice-id]") as unknown as Array<
+      ShimNode & { classList: { contains: (c: string) => boolean } }
+    >;
+    const choiceBtn = choiceBtns[0];
+    const choiceBtn2 = choiceBtns[1];
+    expect(choiceBtn.querySelector(".rp-choice-card__text")?.textContent).toBe("Quietly");
+    expect(choiceBtn.textContent).not.toContain("She lowers her lantern");
     expect(choiceBtn.getAttribute("data-can-edit")).toBe("true");
 
     // Short tap submits without editing
@@ -281,16 +288,24 @@ describe("Choice Mode inline prose, Edit & idle Generate", () => {
     expect(selected).toBe(1);
     expect(edited).toBeNull();
 
-    // Hold triggers onEdit and suppresses the subsequent click
+    // Hold triggers onEdit, highlights choice 1, and suppresses the subsequent click
     listEl.dispatch("pointerdown", { target: choiceBtn, pointerType: "touch", clientX: 10, clientY: 10 });
     expect(choiceBtn.classList.contains("is-holding")).toBe(true);
     await new Promise((r) => setTimeout(r, 40));
     expect(choiceBtn.classList.contains("is-holding")).toBe(false);
+    expect(choiceBtn.classList.contains("is-selected")).toBe(true);
     expect(edited?.id).toBe("c1");
     click(choiceBtn as unknown as Parameters<typeof click>[0]);
     expect(selected).toBe(1);
 
-    // Inline "Hold to edit" hint is first in .rp-choices__actions and visible when ready
+    // Holding choice 2 replaces choice 1 (highlight moves, never stacked)
+    listEl.dispatch("pointerdown", { target: choiceBtn2, pointerType: "touch", clientX: 10, clientY: 10 });
+    await new Promise((r) => setTimeout(r, 40));
+    expect(edited?.id).toBe("c2");
+    expect(choiceBtn.classList.contains("is-selected")).toBe(false);
+    expect(choiceBtn2.classList.contains("is-selected")).toBe(true);
+
+    // Inline "Hold to preview or edit" hint is first in .rp-choices__actions and visible when ready
     const actionsRow = mount.querySelector(".rp-choices__actions") as unknown as {
       children: Array<{ className?: string; textContent?: string; hidden?: boolean }>;
     };
@@ -298,24 +313,9 @@ describe("Choice Mode inline prose, Edit & idle Generate", () => {
       textContent?: string;
       hidden?: boolean;
     };
-    expect(hint?.textContent).toBe("Hold to edit");
+    expect(hint?.textContent).toBe("Hold to preview or edit");
     expect(hint?.hidden).toBe(false);
     expect(actionsRow.children[0]).toBe(hint as unknown as { className?: string });
-
-    // Per-card "More" / "Less" toggle expands/collapses without submitting
-    const more = mount.querySelector(".rp-choices__more") as unknown as Parameters<typeof click>[0] & {
-      textContent: string;
-    };
-    expect(more).not.toBeNull();
-    expect(more.textContent).toBe("More");
-    click(more);
-    expect(choiceBtn.classList.contains("is-expanded")).toBe(true);
-    expect(more.textContent).toBe("Less");
-    expect(selected).toBe(1);
-    click(more);
-    expect(choiceBtn.classList.contains("is-expanded")).toBe(false);
-    expect(more.textContent).toBe("More");
-    expect(selected).toBe(1);
   });
 });
 

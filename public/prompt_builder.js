@@ -33,6 +33,7 @@ import {
   sessionOverheadTokens,
   sessionTokenRatio,
   effectiveContextWindow,
+  shouldUseCacheBreakpoints,
 } from "./model_capability.js";
 import { DEFAULT_AGENTS_CONTRACT, COMPACT_AGENTS_CONTRACT } from "./local_db.js";
 
@@ -41,7 +42,7 @@ const LEDGER_FRAMING_TOKENS = ledgerFramingTokens();
 export const CHOICE_LEDGER_TOKENS = 700;
 export const CHOICE_RECENT_TOKENS = 2200;
 export const CHOICE_MAX_OUTPUT_TOKENS = 768;
-export const CHOICE_REASONING_MAX_OUTPUT_TOKENS = 3072;
+export const CHOICE_REASONING_MAX_OUTPUT_TOKENS = 4096;
 
 /** First field carrying author-written string text, or "". */
 export function firstText(...values) {
@@ -579,7 +580,7 @@ export function planRequest({ card, session, settings, persona, agentsContract, 
   ].join(" ");
   const queryText = substituteCardPlaceholders(rawQueryText, card, activePersona);
   const dynamicLore = selectLorebookEntries(card, {
-    budget: Math.min(1000, Math.floor(budgets.loreBudget)),
+    budget: Math.max(1000, Math.min(4096, Math.floor(budgets.loreBudget))),
     constantOnly: false,
     recentText: queryText,
     maxEntries: 6,
@@ -815,6 +816,7 @@ export function planChoiceRequest({
   previousChoices = [],
   window: windowOverride = null,
   intent = "",
+  boostOutput = false,
 } = {}) {
   const activePersona = hasPersonaContent(persona) ? persona : null;
   const rawCardName = firstText(card?.data?.name, card?.name).trim();
@@ -853,8 +855,12 @@ export function planChoiceRequest({
   const choiceScale = choiceRatio > 1.02 ? choiceRatio : 1;
   const margin = resolveSafetyMargin(baseWindow);
   const choiceCap = getModelCapability(settings?.apiEndpoint, choiceModel);
-  const isReasoningChoice = Boolean(choiceCap.observedReasoning);
-  const maxChoiceOutput = isReasoningChoice ? CHOICE_REASONING_MAX_OUTPUT_TOKENS : CHOICE_MAX_OUTPUT_TOKENS;
+  const isReasoningChoice = Boolean(choiceCap.observedReasoning || boostOutput);
+  const adaptiveReasoningMax = Math.max(
+    CHOICE_REASONING_MAX_OUTPUT_TOKENS,
+    Math.min(8192, Math.floor(Math.max(0, baseWindow - choiceOverhead - margin) * 0.25))
+  );
+  const maxChoiceOutput = isReasoningChoice ? adaptiveReasoningMax : CHOICE_MAX_OUTPUT_TOKENS;
   const desiredOutput = isReasoningChoice
     ? Math.max(MIN_OUTPUT_TOKENS, maxChoiceOutput)
     : Math.max(
@@ -871,7 +877,12 @@ export function planChoiceRequest({
     return payload;
   };
 
-  if (usesMainModel) {
+  const skipSharedForCost =
+    !choiceCap.observedCacheHit &&
+    (choiceCap.uncachedStreak || 0) >= 3 &&
+    !shouldUseCacheBreakpoints(choiceSettings, choiceCap);
+
+  if (usesMainModel && !skipSharedForCost) {
     let main = planRequest({
       card,
       session,
@@ -932,8 +943,15 @@ export function planChoiceRequest({
     activePersona
   );
   const sceneBrief = renderInlineField(sceneRaw, 160);
+  const identityBrief = !sceneBrief ? renderInlineField(characterIdentity(card, activePersona), 120) : "";
   const personaBrief = activePersona ? renderInlineField(substituteCardPlaceholders(firstText(activePersona.description), card, activePersona), 100) : "";
-  const sceneParts = [sceneBrief ? `${neutralizeDelimiters(name)}: ${neutralizeDelimiters(sceneBrief, 160)}` : "", personaBrief ? `${neutralizeDelimiters(who)}: ${neutralizeDelimiters(personaBrief, 100)}` : ""].filter(Boolean);
+  const noteRaw = typeof session?.authorsNote === "string" ? session.authorsNote.trim() : "";
+  const noteBrief = noteRaw ? renderInlineField(substituteCardPlaceholders(noteRaw, card, activePersona), 120) : "";
+  const sceneParts = [
+    (sceneBrief || identityBrief) ? `${neutralizeDelimiters(name)}: ${neutralizeDelimiters(sceneBrief || identityBrief, 160)}` : "",
+    personaBrief ? `${neutralizeDelimiters(who)}: ${neutralizeDelimiters(personaBrief, 100)}` : "",
+    noteBrief ? `Note: ${neutralizeDelimiters(noteBrief, 120)}` : "",
+  ].filter(Boolean);
   const compactSystem = sceneParts.length > 0
     ? `${CHOICE_SYSTEM_PROMPT}\n\nScene context — ${sceneParts.join(" | ")}`
     : CHOICE_SYSTEM_PROMPT;
@@ -942,12 +960,14 @@ export function planChoiceRequest({
   const headTokens = estimateTokens(compactSystem) + 4;
   const taskOnlyTokens = estimateTokens(`${task}${steerTail}`) + 4;
   const maxEstWindow = Math.max(0, Math.floor((baseWindow - choiceOverhead - margin - MIN_OUTPUT_TOKENS) / choiceScale));
-  let budget = Math.min(CHOICE_RECENT_TOKENS, maxEstWindow - headTokens - taskOnlyTokens);
+  const recentLimit = Math.max(CHOICE_RECENT_TOKENS, Math.min(4400, Math.floor(maxEstWindow * 0.25)));
+  const ledgerLimit = Math.max(CHOICE_LEDGER_TOKENS, Math.min(1400, Math.floor(maxEstWindow * 0.1)));
+  let budget = Math.min(recentLimit, maxEstWindow - headTokens - taskOnlyTokens);
 
   const storedLedger = session?.ledger || "";
   const recap = [];
   if (storedLedger && budget > LEDGER_FRAMING_TOKENS) {
-    const ledger = clipLedgerToTokens(storedLedger, Math.min(CHOICE_LEDGER_TOKENS, budget - LEDGER_FRAMING_TOKENS), "");
+    const ledger = clipLedgerToTokens(storedLedger, Math.min(ledgerLimit, budget - LEDGER_FRAMING_TOKENS), "");
     if (ledger) {
       recap.push({ role: "user", content: frameLedger(ledger) });
       budget -= estimateTokens(ledger) + LEDGER_FRAMING_TOKENS;

@@ -380,7 +380,7 @@ function findValidChoiceList(text) {
     }
     if (!matched) i = start + 1;
   }
-  return collectedObjects.length >= 2 ? collectedObjects : null;
+  return collectedObjects.length >= 1 ? collectedObjects : null;
 }
 
 function parseLineItem(line) {

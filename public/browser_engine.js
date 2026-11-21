@@ -367,7 +367,7 @@ export class BrowserChatEngine {
     const planArgs = { card, session, settings: activeSettings, persona: activePersona, count, charName, playerName, previousChoices, intent };
     let request = planChoiceRequest(planArgs);
 
-    const attempt = async (plan) =>
+    const attempt = async (plan, { jsonMode = true } = {}) =>
       postWithParamRetry({
         base,
         headers,
@@ -391,7 +391,7 @@ export class BrowserChatEngine {
             forceReasoningLow: true,
             useCacheBreakpoints: plan.sharedPrefix,
             session: plan.sharedPrefix ? session : null,
-            jsonMode: true,
+            jsonMode,
           });
         },
       });
@@ -426,11 +426,16 @@ export class BrowserChatEngine {
     let raw = extractMessageText(msg?.content);
     let sawReasoning = hasReasoningField(msg);
     noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
-    let { choices } = parseChoices(raw);
-    if (choices.length === 0 && (choiceObj?.finish_reason === "length" || sawReasoning)) {
-      const retryRequest = planChoiceRequest({ ...planArgs, window: request.contextWindow });
-      if (retryRequest.outputTokens > request.outputTokens) {
-        ({ res, error } = await attempt(retryRequest));
+    let { choices } = parseChoices(raw, { maxChars: 640 });
+    if (choices.length === 0) {
+      const needMoreTokens = choiceObj?.finish_reason === "length" || sawReasoning;
+      const retryRequest = planChoiceRequest({
+        ...planArgs,
+        window: request.contextWindow,
+        boostOutput: needMoreTokens,
+      });
+      if (!needMoreTokens || retryRequest.outputTokens >= request.outputTokens) {
+        ({ res, error } = await attempt(retryRequest, { jsonMode: needMoreTokens }));
         if (!res.ok) throw error;
         let retryData = null;
         try {
@@ -446,8 +451,12 @@ export class BrowserChatEngine {
         raw = extractMessageText(msg?.content);
         sawReasoning = hasReasoningField(msg);
         noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
-        ({ choices } = parseChoices(raw));
+        ({ choices } = parseChoices(raw, { maxChars: 640 }));
       }
+    }
+    if (choices.length === 0 && sawReasoning) {
+      const reasoningRaw = extractMessageText(msg?.reasoning_content || msg?.reasoning || msg?.thought);
+      if (reasoningRaw) ({ choices } = parseChoices(reasoningRaw, { maxChars: 640 }));
     }
     return { choices, usage: data?.usage ?? null, request };
   }

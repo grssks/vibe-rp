@@ -432,3 +432,28 @@ export function noteObservedReasoning(endpoint, model, usage, sawReasoningDelta 
     updateModelCapability(endpoint, model, { observedReasoning: true });
   }
 }
+
+/**
+ * Records whether the endpoint actually returned cached prompt tokens on a
+ * sizable request, so non-caching gateways can skip full-prefix sharing in
+ * auxiliary calls (like Choice Mode) and save ~75% input tokens.
+ */
+export function noteCacheObservation(endpoint, model, usage) {
+  if (!usage || typeof usage !== "object") return;
+  const cached =
+    usage.prompt_tokens_details?.cached_tokens ??
+    usage.cache_read_input_tokens ??
+    usage.prompt_cache_hit_tokens ??
+    usage.total_cached_tokens ??
+    null;
+  if (typeof cached !== "number") return;
+  if (cached > 0) {
+    updateModelCapability(endpoint, model, { observedCacheHit: true, uncachedStreak: 0 });
+    return;
+  }
+  const input = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : (usage.input_tokens || 0);
+  if (input >= 1024) {
+    const cap = getModelCapability(endpoint, model);
+    updateModelCapability(endpoint, model, { uncachedStreak: (cap.uncachedStreak || 0) + 1 });
+  }
+}

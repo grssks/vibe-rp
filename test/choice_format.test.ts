@@ -1145,4 +1145,105 @@ describe("the deliberation gate learns from observed reasoning", () => {
       clearModelCapabilities();
     }
   });
+
+  test("parseChoices recovers completed choice objects from truncated JSON and generateChoices falls back to reasoning text", async () => {
+    const truncated = '{"choices":[{"label":"Step forward","text":"I step into the lantern light."},{"label":"Wait","text":"I hold my';
+    const recovered = parseChoices(truncated);
+    expect(recovered.choices.length).toBe(1);
+    expect(recovered.choices[0].label).toBe("Step forward");
+
+    clearModelCapabilities();
+    const origFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: null,
+                reasoning: '{"choices":[{"label":"Check the door","text":"I test the latch quietly."}]}',
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 120 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    try {
+      const res = await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "Silence." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: endpoint, model: "reason-fallback", maxContextTokens: 8192 },
+        count: 3,
+      });
+      expect(res.choices.length).toBe(1);
+      expect(res.choices[0].label).toBe("Check the door");
+    } finally {
+      globalThis.fetch = origFetch;
+      clearModelCapabilities();
+    }
+  });
+
+  test("generateChoices retries on Turn 2+ even when observedReasoning is already true, preserves 450-char choices, and detects inline <think> tags", async () => {
+    const { hasReasoningField } = await import("../public/llm_transport.js");
+    expect(hasReasoningField({ content: "<think>planning...</think>" })).toBe(true);
+
+    clearModelCapabilities();
+    const origFetch = globalThis.fetch;
+    let call = 0;
+    const bodies: Array<{ max_tokens?: number }> = [];
+    const richText = "I step quietly past the threshold, letting the rain drip from my coat onto the floorboards while keeping one hand near the brass latch. ".repeat(3).trim();
+    expect(richText.length).toBeGreaterThan(320);
+    expect(richText.length).toBeLessThan(640);
+
+    globalThis.fetch = async (_url, init) => {
+      call += 1;
+      bodies.push(JSON.parse(String(init?.body || "{}")));
+      if (call === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: "length", message: { content: null, reasoning: "Still thinking..." } }],
+            usage: { prompt_tokens: 100, completion_tokens: 4096 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: { content: JSON.stringify({ choices: [{ label: "Step inside", text: richText }] }) },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 500 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+    try {
+      // Turn 1: learns observedReasoning and retries
+      await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "Silence." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: endpoint, model: "turn2-reason", maxContextTokens: 65536 },
+        count: 3,
+      });
+      // Turn 2: observedReasoning is ALREADY true; hitting length must STILL retry!
+      call = 0;
+      const res2 = await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "Silence." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: endpoint, model: "turn2-reason", maxContextTokens: 65536 },
+        count: 3,
+      });
+      expect(call).toBe(2);
+      expect(bodies[bodies.length - 1].max_tokens).toBe(8192);
+      expect(res2.choices[0].text.length).toBe(richText.length);
+    } finally {
+      globalThis.fetch = origFetch;
+      clearModelCapabilities();
+    }
+  });
 });

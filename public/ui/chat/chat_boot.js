@@ -363,6 +363,8 @@ const choicePanel = createChoicePanel({
   onEdit: (choice) => {
     if (!choice?.text) return;
     composer.setValue(choice.text);
+    saveDraft(choice.text);
+    updateContextStats();
     authorInput.focus();
   },
   onRegenerate: (intent = "") => requestChoices({ isRegenerate: true, intent }),

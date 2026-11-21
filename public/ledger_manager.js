@@ -36,10 +36,10 @@ const LEDGER_SHARED_RULES = `- Keep every character distinct under their story n
 export const SUMMARY_PROMPT = `Fold the transcript above into a continuity ledger under ${SUMMARY_TARGET_WORDS} words, omitting empty sections and trimming atmosphere before facts:
 
 ## Cast
-- [Name]: [role, appearance, voice, present or absent; witnessed/told knowledge scope; condition, disposition toward the user, and how they have changed together with the event that caused it, separating core identity from the state it is passing through.]
+- [Name (characters and user)]: [role, appearance, voice, present or absent; witnessed/told knowledge scope; condition, disposition toward the user, and how they have changed together with the event that caused it, separating core identity from the state it is passing through.]
 
 ## Timeline
-- [Chronological events and concrete outcomes.]
+- [Time/place: chronological events, causal triggers, and concrete outcomes.]
 
 ## World
 - [Places, factions, objects, and rules as they now stand, not as they began — the alteration is the fact.]

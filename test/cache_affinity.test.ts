@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { BrowserChatEngine, detectParameterRejection, ensembleCast } from "../public/browser_engine.js";
 import { normalizeEndpointBase, extractMessageText, postWithParamRetry, learnRejectedParam } from "../public/llm_transport.js";
-import { promptCacheKeyFor, clearModelCapabilities } from "../public/model_capability.js";
+import { promptCacheKeyFor, clearModelCapabilities, noteCacheObservation, getModelCapability } from "../public/model_capability.js";
 import { analyzeTurnState, countCrossTurnNgramEchoes, SLOP_CLUSTER_THRESHOLD } from "../public/prompt_adaptive.js";
 import { mapSourceJsonToCard } from "../public/remote_import.js";
 import { resolveCardIdentity, substitutePlaceholders } from "../public/text.js";
@@ -276,5 +276,110 @@ describe("endpoint & transport hardening", () => {
     } finally {
       globalThis.fetch = origFetch;
     }
+  });
+
+  test("17. Indonesian PROSE_TICS (emotionMix, triads, explainedTheBeat) and Indonesian SLOP_LEXICON fire on clustered replies", () => {
+    const messages = [
+      { role: "user", content: "Aku menatapnya." },
+      {
+        role: "assistant",
+        content:
+          "Ia menelan ludah dan napasnya tercekat. Di dadanya ada campuran takut dan lega, seolah sedang menahan sesuatu. Ia meletakkan lampu, kunci, dan peta di meja.",
+      },
+      { role: "user", content: "Aku menunggu jawabannya." },
+      {
+        role: "assistant",
+        content:
+          "Dengan suara serak ia menyeringai tipis, tulang punggungnya menegang. Ada perpaduan marah dan cemas di suaranya, ada sesuatu di matanya saat meraih pedang, perisai, dan jubah.",
+      },
+      { role: "user", content: "Katanya?" },
+      {
+        role: "assistant",
+        content:
+          "Rahangnya mengeras dan tatapannya tak lepas dariku, seolah ingin memastikan semuanya.",
+      },
+    ];
+    const state = analyzeTurnState({
+      messages,
+      charName: "Saki Himekawa",
+      playerName: "Iqbal",
+    });
+    const ids = state.tics.map((t) => t.id);
+    expect(ids).toContain("emotionMix");
+    expect(ids).toContain("triads");
+    expect(ids).toContain("explainedTheBeat");
+    expect(state.slopHits).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
+  });
+
+  test("18. noteCacheObservation switches planChoiceRequest to compact prompt after 3 uncached large turns and includes authorsNote", () => {
+    clearModelCapabilities();
+    try {
+      const ep = "https://nocache-gateway.test/v1";
+      const model = "story-m";
+      const card = {
+        data: {
+          name: "Elena",
+          description: "A borderlands cartographer.",
+          personality: "Guarded, precise, observant.",
+          scenario: "In the salt-flat watchtower at dusk.",
+        },
+      };
+      const session = {
+        id: "sess_nc",
+        authorsNote: "Keep tension dry and understated.",
+        messages: [
+          { role: "user", content: "I set the lantern down." },
+          { role: "assistant", content: "She watches the ridge without speaking." },
+        ],
+        ledger: "",
+        consumed: 1,
+      };
+      const settings = { apiEndpoint: ep, model, maxContextTokens: 8192, maxTokens: 1000 };
+
+      // Before 3 uncached turns, same-model uses sharedPrefix: true.
+      const before = BrowserChatEngine.planChoiceRequest({ card, session, settings, persona: { name: "Rowan" }, count: 3 });
+      expect(before.sharedPrefix).toBe(true);
+
+      for (let i = 0; i < 3; i += 1) {
+        noteCacheObservation(ep, model, { prompt_tokens: 1500, prompt_tokens_details: { cached_tokens: 0 } });
+      }
+      expect(getModelCapability(ep, model).uncachedStreak).toBe(3);
+
+      const after = BrowserChatEngine.planChoiceRequest({ card, session, settings, persona: { name: "Rowan" }, count: 3 });
+      expect(after.sharedPrefix).toBe(false);
+      expect(after.payload[0].content).toContain("Note: Keep tension dry and understated.");
+    } finally {
+      clearModelCapabilities();
+    }
+  });
+
+  test("19. sycophancy and openingEcho detectors fire on English and Indonesian transcripts", () => {
+    const enState = analyzeTurnState({
+      messages: [
+        { role: "user", content: "I step closer and ask why you lied." },
+        { role: "assistant", content: "As you step closer, she sighs. \"Of course, you're right.\"" },
+        { role: "user", content: "That's not an answer." },
+        { role: "assistant", content: "When you press her, she nods. \"Certainly, I completely understand.\"" },
+      ],
+      charName: "Elena",
+      playerName: "Rowan",
+    });
+    const enIds = enState.tics.map((t) => t.id);
+    expect(enIds).toContain("sycophancy");
+    expect(enIds).toContain("openingEcho");
+
+    const idState = analyzeTurnState({
+      messages: [
+        { role: "user", content: "Aku mendekat dan bertanya." },
+        { role: "assistant", content: "Saat kamu mendekat, dia mengangguk. \"Tentu saja, kamu benar.\"" },
+        { role: "user", content: "Jelaskan sekarang." },
+        { role: "assistant", content: "Mendengar kamu mendesak, dia tersenyum. \"Baiklah kalau begitu, aku mengerti sepenuhnya.\"" },
+      ],
+      charName: "Saki",
+      playerName: "Iqbal",
+    });
+    const idIds = idState.tics.map((t) => t.id);
+    expect(idIds).toContain("sycophancy");
+    expect(idIds).toContain("openingEcho");
   });
 });

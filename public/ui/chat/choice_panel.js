@@ -100,7 +100,7 @@ export function createChoicePanel({
       "aria-controls": "choice-steer-bar",
     },
   });
-  const editHint = el("span", { class: "rp-choices__hint", text: "Hold to edit", hidden: true });
+  const editHint = el("span", { class: "rp-choices__hint", text: "Hold to preview or edit", hidden: true });
   actions.append(editHint, genBtn, retryBtn, regenBtn, steerToggleBtn);
 
   const steerBar = el("div", {
@@ -180,7 +180,6 @@ export function createChoicePanel({
     } else {
       collapseBtn.textContent = "Hide choices";
       collapseBtn.title = "Hide the choices to read the story";
-      markOverflow();
     }
   }
 
@@ -247,10 +246,17 @@ export function createChoicePanel({
     holdState = null;
   }
 
+  function triggerEdit(btn, found) {
+    for (const node of list.querySelectorAll("[data-choice-id]")) {
+      node.classList.remove("is-selected");
+    }
+    btn.classList.add("is-selected");
+    onEdit(found);
+  }
+
   // Buttons are rebuilt per set, so selection and hold-to-edit are delegated to the list.
   list.addEventListener("pointerdown", (event) => {
     if (typeof onEdit !== "function") return;
-    if (event.target?.closest?.("[data-more-toggle]")) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     const btn = event.target?.closest?.("[data-choice-id]");
     if (!btn || btn.disabled) return;
@@ -264,7 +270,7 @@ export function createChoicePanel({
       btn.classList.remove("is-holding");
       holdState = null;
       suppressNextClickId = id;
-      onEdit(found);
+      triggerEdit(btn, found);
     }, holdDurationMs);
     holdState = {
       timer,
@@ -301,21 +307,10 @@ export function createChoicePanel({
     const found = state.choices.find((c) => c.id === id);
     if (!found) return;
     event.preventDefault();
-    onEdit(found);
+    triggerEdit(btn, found);
   });
 
   list.addEventListener("click", (event) => {
-    const more = event.target?.closest?.("[data-more-toggle]");
-    if (more) {
-      const card = more.closest("[data-choice-id]");
-      if (card) {
-        const expanded = !card.classList.contains("is-expanded");
-        if (expanded) card.classList.add("is-expanded");
-        else card.classList.remove("is-expanded");
-        more.textContent = expanded ? "Less" : "More";
-      }
-      return;
-    }
     const btn = event.target?.closest?.("[data-choice-id]");
     if (!btn || btn.disabled) return;
     const id = btn.getAttribute("data-choice-id");
@@ -362,12 +357,6 @@ export function createChoicePanel({
     const textEl = el("span", { class: "rp-choices__text", text: choice.text && choice.label ? choice.label : choice.text });
     textEl.classList.add("rp-choice-card__text");
     const contentEl = el("span", { class: "rp-choices__content" }, [textEl]);
-    if (choice.text && choice.label && choice.text !== choice.label) {
-      contentEl.append(
-        el("span", { class: "rp-choices__prose rp-choice-card__prose", text: choice.text }),
-        el("span", { class: "rp-choices__more", attrs: { "aria-hidden": "true", "data-more-toggle": "true" }, text: "More" })
-      );
-    }
     btn.append(keyEl, contentEl);
     let badgeText = "";
     const povLower = (choice.pov || "").toLowerCase();
@@ -394,23 +383,10 @@ export function createChoicePanel({
     if (typeof onEdit === "function") {
       btn.setAttribute("data-can-edit", "true");
       btn.title = btn.title
-        ? `${btn.title}\n\nHold to edit in composer`
-        : "Hold to edit in composer";
+        ? `${btn.title}\n\nHold to preview or edit in composer`
+        : "Hold to preview or edit in composer";
     }
     return btn;
-  }
-
-  function markOverflow() {
-    const run = () => {
-      for (const card of list.querySelectorAll("[data-choice-id]")) {
-        const prose = card.querySelector(".rp-choices__prose");
-        const over = Boolean(prose && prose.scrollHeight > prose.clientHeight + 1);
-        if (over) card.setAttribute("data-overflow", "true");
-        else card.removeAttribute("data-overflow");
-      }
-    };
-    if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
-    else run();
   }
 
   function renderList() {
@@ -431,7 +407,6 @@ export function createChoicePanel({
         buildChoice(choice, index, { disabled, selected: choice.id === state.selectedId })
       )
     );
-    markOverflow();
   }
 
   /**

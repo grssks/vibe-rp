@@ -5,6 +5,7 @@ import {
   MIN_OUTPUT_TOKENS,
   resolveContextBudgets,
 } from "./context_plan.js";
+import { extractThoughtBlocks } from "./text.js";
 import {
   getModelCapability,
   updateModelCapability,
@@ -14,6 +15,7 @@ import {
   shouldUseJsonResponseFormat,
   withCacheBreakpoints,
   noteObservedReasoning,
+  noteCacheObservation,
   promptCacheKeyFor,
 } from "./model_capability.js";
 
@@ -39,14 +41,18 @@ export function extractMessageText(content) {
     .join("");
 }
 
-/** True when a message or delta object carries non-empty reasoning/thought fields. */
+/** True when a message or delta object carries non-empty reasoning/thought fields or inline thought tags. */
 export function hasReasoningField(obj) {
-  return Boolean(
+  if (
     (typeof obj?.reasoning_content === "string" && obj.reasoning_content) ||
     (typeof obj?.reasoning === "string" && obj.reasoning) ||
     (typeof obj?.thought === "string" && obj.thought) ||
     (Array.isArray(obj?.reasoning) && obj.reasoning.length)
-  );
+  ) {
+    return true;
+  }
+  const contentText = extractMessageText(obj?.content);
+  return Boolean(contentText && extractThoughtBlocks(contentText).thought);
 }
 
 /** Resolves endpoint base URL, model, and Authorization headers. */
@@ -532,6 +538,7 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
 
   if (usage && onUsage) onUsage(usage);
   noteObservedReasoning(endpoint, model, usage, sawReasoningDelta);
+  noteCacheObservation(endpoint, model, usage);
 
   if (sawContent && corruptLines > 0 && onLengthCut) {
     onLengthCut(

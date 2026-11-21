@@ -156,8 +156,13 @@ export const PROSE_TICS = [
     priority: 66,
     keep: 84,
     threshold: 2,
+    multilingual: true,
     note: 'Anchor conflicted feelings in concrete physical reactions. The last replies leaned on abstract emotional pairing ("a mix of dread and relief").',
-    count: (text) => countMatches(text, /\b(?:a|the)\s+(?:mix|mixture|blend|combination|flood|wave)\s+of\s+\w+(\s+\w+)?\s+and\s+\w+/gi),
+    count: (text) =>
+      countMatches(
+        text,
+        /(?:\b(?:a|the)\s+(?:mix|mixture|blend|combination|flood|wave)\s+of\s+\w+(?:\s+\w+)?\s+and\s+\w+\b|\b(?:campuran|perpaduan|bauran|gelombang)\s+(?:antara\s+)?[\p{L}-]+(?:\s+[\p{L}-]+)?\s+dan\s+[\p{L}-]+)/giu
+      ),
   },
   {
     id: "askedThePlayer",
@@ -199,34 +204,54 @@ export const PROSE_TICS = [
   {
     id: "triads",
     priority: 52,
-    keep: 52,
+    keep: 61,
     threshold: 2,
+    multilingual: true,
     note: "Reach for one striking, concrete detail. The last replies leaned on three-item series.",
-    count: (text) => countMatches(text, /\b(?:[\w'-]+(?:\s+[\w'-]+){0,3}),\s+(?:[\w'-]+(?:\s+[\w'-]+){0,3}),\s+and\s+(?:[\w'-]+(?:\s+[\w'-]+){0,3})\b/gi),
+    count: (text) =>
+      countMatches(
+        text,
+        /(?:^|[^\p{L}])(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3}),\s+(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3}),\s+(?:and|dan|serta)\s+(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3})(?![\p{L}])/giu
+      ),
   },
   {
     id: "simileTic",
     priority: 44,
     keep: 64,
     threshold: 5,
+    multilingual: true,
     note: 'Trust the image on the page. The last replies kept reaching for "the way ..." similes.',
-    count: (text) => countMatches(text, /\bthe way\s+(?:she|he|they|it|the|his|her|their|one)\b/gi),
+    count: (text) =>
+      countMatches(
+        text,
+        /(?:\bthe way\s+(?:she|he|they|it|the|his|her|their|one)\b|\bseperti\s+cara(?:nya)?\s+(?:dia|ia|mereka|dirinya)\b|\bbagaikan\s+[\p{L}-]+\s+yang\b)/giu
+      ),
   },
   {
     id: "negatedAction",
     priority: 48,
     keep: 66,
     threshold: 7,
+    multilingual: true,
     note: 'Show the action that did happen. The last replies leaned on "did not / would not" negations.',
-    count: (text) => countMatches(text, /\b(?:did not|didn'?t|does not|doesn'?t|had not|hadn'?t|would not|wouldn'?t|will not|won'?t)\b/gi),
+    count: (text) =>
+      countMatches(
+        text,
+        /\b(?:did not|didn'?t|does not|doesn'?t|had not|hadn'?t|would not|wouldn'?t|will not|won'?t|tidak\s+(?:akan|pernah|bisa|mau|lagi|langsung)|tak\s+(?:akan|pernah|bisa|mau|lagi|mampu)|belum\s+pernah)\b/gi
+      ),
   },
   {
     id: "explainedTheBeat",
     priority: 56,
     keep: 76,
     threshold: 3,
+    multilingual: true,
     note: "Let the gesture, the silence, and the consequence land uninterpreted. The narration is explaining what the scene already showed.",
-    count: (text) => countMatches(text, /\b(?:seemed to|felt a (?:pulse|twinge|chill|surge|wave)|sensed (?:a|the)|was (?:afraid|terrified|furious|relieved|overwhelmed)|a flicker of|something in (?:his|her|their) (?:eyes|voice|chest))\b/gi),
+    count: (text) =>
+      countMatches(
+        text,
+        /(?:\b(?:seemed to|felt a (?:pulse|twinge|chill|surge|wave)|sensed (?:a|the)|was (?:afraid|terrified|furious|relieved|overwhelmed)|a flicker of|something in (?:his|her|their) (?:eyes|voice|chest))\b|\bseolah(?:-olah)?\s+(?:sedang|ingin|hendak|bisa|tahu)\b|\bmerasakan\s+(?:gelombang|getaran|desiran|denyut|kilatan)\b|\bada\s+sesuatu\s+di\s+(?:mata|suara|dada|tatapan)(?:nya)?\b|\bkilatan\s+[\p{L}-]+\s+di\s+mata(?:nya)?\b)/giu
+      ),
   },
   {
     id: "uniformBlocks",
@@ -248,6 +273,35 @@ export const PROSE_TICS = [
       return streak;
     },
   },
+  {
+    id: "sycophancy",
+    priority: 72,
+    keep: 89,
+    threshold: 2,
+    structural: true,
+    note: "Hold the character's own priorities, friction, and self-interest. The last replies slipped into agreeable assistant phrasing.",
+    count: (text) =>
+      countMatches(
+        text,
+        /\b(?:of course,|certainly,|you'?re right\b|you are right\b|i completely understand|i'?d be happy to|happy to help|tentu saja,|kamu benar\b|kau benar\b|aku mengerti sepenuhnya|dengan senang hati|baiklah kalau begitu)\b/gi
+      ),
+  },
+  {
+    id: "openingEcho",
+    priority: 74,
+    keep: 90,
+    threshold: 2,
+    structural: true,
+    note: "Start directly inside the character's next motion or spoken line. The last replies opened by re-staging the player's action.",
+    count: (_text, replies) =>
+      replies
+        .slice(-3)
+        .filter((r) =>
+          /^(?:["'\u201C\u201D\u2018\u2019*_\s]*(?:(?:as|when|hearing|watching|seeing|upon)\s+(?:you|your)\b|(?:saat|ketika|mendengar|melihat|begitu)\s+(?:kamu|kau|anda)\b))/iu.test(
+            String(r || "").trim()
+          )
+        ).length,
+  },
 ];
 
 /**
@@ -264,6 +318,11 @@ export const SLOP_LEXICON = [
   "ministrations", "a testament to", "testament to", "little did", "unbeknownst",
   "predatory", "down her spine", "down his spine", "heart hammered", "eyes never leaving",
   "voice thick with", "dripping with", "a dance of", "chaos of emotions",
+  "menelan ludah", "napasnya tercekat", "napas tercekat", "suara serak", "berbisik serak",
+  "menyeringai tipis", "tulang punggungnya", "jantungnya berdegup", "buku-buku jarinya memutih",
+  "rahangnya mengeras", "tatapannya tak lepas", "desiran aneh",
+  "escaped her lips", "escaped his lips", "eyes widened", "gaze dropped", "gaze lingered",
+  "lolos dari bibirnya", "matanya melebar", "pandangannya jatuh",
 ];
 /**
  * Counts recurring 3-gram and 4-gram phrase echoes across turns in any language/script.
@@ -610,9 +669,10 @@ export function analyzeTurnState({
     replyWords,
     latestReplyWords: replyWords.length ? replyWords[replyWords.length - 1] : 0,
     latinScript,
-    slopHits: latinScript && isLikelyEnglish(recentNarration || recent)
-      ? countMatches(recentNarration, SLOP_RE)
-      : countCrossTurnNgramEchoes(replies),
+    slopHits: Math.max(
+      latinScript ? countMatches(recentNarration, SLOP_RE) : 0,
+      countCrossTurnNgramEchoes(replies)
+    ),
     tics,
     narration: detectNarration(list),
     puppetBleed,
