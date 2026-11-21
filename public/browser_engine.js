@@ -87,9 +87,6 @@ import {
   planRequest,
   shouldDeliberate,
   planChoiceRequest,
-  CHOICE_LEDGER_TOKENS,
-  CHOICE_RECENT_TOKENS,
-  CHOICE_MAX_OUTPUT_TOKENS,
 } from "./prompt_builder.js";
 export {
   hasPersonaContent,
@@ -100,9 +97,6 @@ export {
   buildSystemSections,
   shouldDeliberate,
   planChoiceRequest,
-  CHOICE_LEDGER_TOKENS,
-  CHOICE_RECENT_TOKENS,
-  CHOICE_MAX_OUTPUT_TOKENS,
 };
 import {
   resolveEndpoint,
@@ -198,7 +192,7 @@ export class BrowserChatEngine {
           markLedgerTruncated(session);
           if (onNotice) onNotice("Continuity ledger reached its size limit and was compressed; some detail may be condensed.");
         }
-        request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: budgets.contextWindow });
+        request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: budgets.contextWindow, continueMode });
         ledgerCondensed = ledgerCondensed || request.ledgerCondensed;
       }
     }
@@ -260,7 +254,7 @@ export class BrowserChatEngine {
         noteContextWindow(activeSettings.apiEndpoint, activeSettings.model, realWindow);
       }
 
-      request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: targetWindow });
+      request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: targetWindow, continueMode });
       if (request.plan.compacted && request.plan.folded.length > 0) {
         const refitConsumed = Math.max(1, Number(session.consumed) || 1);
         const toFold = all.slice(refitConsumed, request.plan.consumedAfter);
@@ -279,7 +273,7 @@ export class BrowserChatEngine {
             markLedgerTruncated(session);
             if (onNotice) onNotice("Continuity ledger reached its size limit and was compressed; some detail may be condensed.");
           }
-          request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: targetWindow });
+          request = planRequest({ card, session, settings, persona: activePersona, agentsContract, window: targetWindow, continueMode });
         }
       }
       ledgerCondensed = ledgerCondensed || request.ledgerCondensed;
@@ -426,16 +420,21 @@ export class BrowserChatEngine {
     let raw = extractMessageText(msg?.content);
     let sawReasoning = hasReasoningField(msg);
     noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
-    let { choices } = parseChoices(raw, { maxChars: 640 });
+    let { choices } = parseChoices(raw, { maxChars: Infinity });
+    const hitLength = choiceObj?.finish_reason === "length";
+    if (choices.length === 0 && sawReasoning && !hitLength) {
+      const reasoningRaw = extractMessageText(msg?.reasoning_content || msg?.reasoning || msg?.thought);
+      if (reasoningRaw) ({ choices } = parseChoices(reasoningRaw, { maxChars: Infinity }));
+    }
     if (choices.length === 0) {
-      const needMoreTokens = choiceObj?.finish_reason === "length" || sawReasoning;
+      const needMoreTokens = hitLength || sawReasoning;
       const retryRequest = planChoiceRequest({
         ...planArgs,
         window: request.contextWindow,
         boostOutput: needMoreTokens,
       });
       if (!needMoreTokens || retryRequest.outputTokens >= request.outputTokens) {
-        ({ res, error } = await attempt(retryRequest, { jsonMode: needMoreTokens }));
+        ({ res, error } = await attempt(retryRequest, { jsonMode: hitLength }));
         if (!res.ok) throw error;
         let retryData = null;
         try {
@@ -451,12 +450,12 @@ export class BrowserChatEngine {
         raw = extractMessageText(msg?.content);
         sawReasoning = hasReasoningField(msg);
         noteObservedReasoning(endpoint, choiceModel, data?.usage, sawReasoning);
-        ({ choices } = parseChoices(raw, { maxChars: 640 }));
+        ({ choices } = parseChoices(raw, { maxChars: Infinity }));
       }
     }
     if (choices.length === 0 && sawReasoning) {
       const reasoningRaw = extractMessageText(msg?.reasoning_content || msg?.reasoning || msg?.thought);
-      if (reasoningRaw) ({ choices } = parseChoices(reasoningRaw, { maxChars: 640 }));
+      if (reasoningRaw) ({ choices } = parseChoices(reasoningRaw, { maxChars: Infinity }));
     }
     return { choices, usage: data?.usage ?? null, request };
   }

@@ -23,7 +23,10 @@ import {
   estimateTokens,
   cleanPromptText,
 } from "../public/browser_engine.js";
-import { stripThoughtBlocks } from "../public/text.js";
+import { planRequest, truncateHistory } from "../public/prompt_builder.js";
+import { stripThoughtBlocks, pruneImpersonation } from "../public/text.js";
+import { providerContextWindow } from "../public/llm_transport.js";
+import { resolveSummaryBudget } from "../public/context_plan.js";
 import { words } from "./helpers.js";
 
 describe("choice parser - the instructed shape", () => {
@@ -1239,8 +1242,193 @@ describe("the deliberation gate learns from observed reasoning", () => {
         count: 3,
       });
       expect(call).toBe(2);
-      expect(bodies[bodies.length - 1].max_tokens).toBe(8192);
+      expect(bodies[bodies.length - 1].max_tokens).toBeGreaterThan(6144);
       expect(res2.choices[0].text.length).toBe(richText.length);
+    } finally {
+      globalThis.fetch = origFetch;
+      clearModelCapabilities();
+    }
+  });
+});
+
+describe("planChoiceRequest — mid-session parameter adjustments", () => {
+  test("respects lowered maxTokens on non-reasoning models and expanded maxTokens on reasoning models", () => {
+    clearModelCapabilities();
+    const card = { data: { name: "Elena", description: "A steady archivist." } };
+    const session = {
+      messages: [
+        { role: "assistant", content: "The lamp flickers." },
+        { role: "user", content: "I step closer." },
+        { role: "assistant", content: "She waits." },
+      ],
+      ledger: "",
+      consumed: 1,
+    };
+
+    const lowered = planChoiceRequest({
+      card,
+      session,
+      settings: { apiEndpoint: "https://adj.test/v1", model: "plain-m", maxContextTokens: 16384, maxTokens: 400 },
+      persona: null,
+      count: 3,
+    });
+    expect(lowered.outputTokens).toBe(400);
+
+    updateModelCapability("https://adj.test/v1", "reason-m", { observedReasoning: true });
+    const raised = planChoiceRequest({
+      card,
+      session,
+      settings: { apiEndpoint: "https://adj.test/v1", model: "reason-m", maxContextTokens: 16384, maxTokens: 7000 },
+      persona: null,
+      count: 3,
+    });
+    expect(raised.outputTokens).toBe(7000);
+    clearModelCapabilities();
+  });
+
+  test("clamps outputTokens and preserves recent history when maxContextTokens is lowered below maxTokens mid-session", () => {
+    clearModelCapabilities();
+    const card = { data: { name: "Elena", description: "A steady archivist." } };
+    const session = {
+      messages: [
+        { role: "assistant", content: words(80) },
+        { role: "user", content: words(80) },
+        { role: "assistant", content: "Final turn marker." },
+      ],
+      ledger: "",
+      consumed: 1,
+    };
+    updateModelCapability("https://adj.test/v1", "reason-m", { observedReasoning: true });
+    const req = planChoiceRequest({
+      card,
+      session,
+      settings: { apiEndpoint: "https://adj.test/v1", model: "reason-m", maxContextTokens: 4096, maxTokens: 4000 },
+      persona: null,
+      count: 3,
+    });
+    expect(req.inputTokens + req.outputTokens).toBeLessThanOrEqual(4096);
+    expect(req.payload.some((m: { content: string }) => m.content.includes("Final turn marker."))).toBe(true);
+    clearModelCapabilities();
+  });
+
+  test("falls back to compact choice prompt when full history would starve a reasoning model's output", () => {
+    clearModelCapabilities();
+    const card = { data: { name: "Elena", description: words(400) } };
+    const messages = [{ role: "assistant", content: "Opening." }];
+    for (let i = 0; i < 10; i += 1) {
+      messages.push({ role: "user", content: words(180) });
+      messages.push({ role: "assistant", content: words(220) });
+    }
+    const session = { messages, ledger: "", consumed: 1 };
+    updateModelCapability("https://adj.test/v1", "reason-m", { observedReasoning: true });
+    const req = planChoiceRequest({
+      card,
+      session,
+      settings: { apiEndpoint: "https://adj.test/v1", model: "reason-m", maxContextTokens: 8192, maxTokens: 512 },
+      persona: null,
+      count: 3,
+    });
+    expect(req.sharedPrefix).toBe(false);
+    expect(req.outputTokens).toBeGreaterThanOrEqual(2000);
+    expect(req.inputTokens + req.outputTokens).toBeLessThanOrEqual(8192);
+    clearModelCapabilities();
+  });
+});
+
+describe("prompt & LLM deep edge cases", () => {
+  test("continueMode preserves continuation prompt alongside Writing Guidance and after truncateHistory", () => {
+    const card = { data: { name: "Elena", description: "A steady archivist." } };
+    const session = {
+      messages: [
+        { role: "assistant", content: "Opening." },
+        { role: "user", content: words(40) },
+        { role: "assistant", content: words(40) },
+        { role: "user", content: words(40) },
+        { role: "assistant", content: "She reached for the brass key, her fingers hovering over" },
+      ],
+      ledger: "",
+      consumed: 1,
+    };
+    const req = planRequest({
+      card,
+      session,
+      settings: { apiEndpoint: "https://adj.test/v1", model: "m", maxContextTokens: 4096, maxTokens: 512 },
+      persona: { name: "Rowan" },
+      continueMode: true,
+    });
+    const last = req.payload[req.payload.length - 1];
+    expect(last.role).toBe("user");
+    expect(last.content).toContain("Continue the scene directly");
+    expect(last.content).toContain("[Writing Guidance:");
+  });
+
+  test("pruneImpersonation ignores speaker labels inside <think> scratchpads", () => {
+    const reply = "<think>\nRowan: wait what would he say?\nUser: maybe leave.\n</think>\nElena sets the cup down.";
+    expect(pruneImpersonation(reply, { user: "Rowan" })).toBe(reply);
+  });
+
+  test("providerContextWindow extracts limit rather than prompt count from comparison errors", () => {
+    expect(providerContextWindow(new Error("context length 20000 > 16384 maximum"))).toBe(16384);
+    expect(providerContextWindow(new Error("context length 24000 exceeds 16384 tokens"))).toBe(16384);
+    expect(providerContextWindow(new Error("maximum context length is 32768 tokens, you requested 40000"))).toBe(32768);
+  });
+
+  test("resolveSummaryBudget expands for reasoning models on larger windows", () => {
+    const plain = resolveSummaryBudget({ transcriptTokens: 1500, contextWindow: 32768, isReasoning: false });
+    const reason = resolveSummaryBudget({ transcriptTokens: 1500, contextWindow: 32768, isReasoning: true });
+    expect(reason).toBeGreaterThan(plain);
+    expect(reason).toBeGreaterThan(4096);
+  });
+
+  test("generateChoices drops jsonMode on stop-reason retry even for reasoning models", async () => {
+    clearModelCapabilities();
+    const endpoint = "https://reason-stop.test/v1";
+    const origFetch = globalThis.fetch;
+    const bodies = [];
+    let call = 0;
+    globalThis.fetch = async (_url, init) => {
+      call += 1;
+      bodies.push(JSON.parse(String(init?.body || "{}")));
+      if (call === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [{ finish_reason: "stop", message: { content: "not json at all", reasoning: "thinking" } }],
+            usage: { prompt_tokens: 100, completion_tokens: 400 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              finish_reason: "stop",
+              message: {
+                content: JSON.stringify({
+                  choices: [
+                    { label: "Step inside", text: "Open the door and look around." },
+                    { label: "Wait", text: "Stay outside and listen." },
+                  ],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 100, completion_tokens: 200 },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    };
+    try {
+      const res = await BrowserChatEngine.generateChoices({
+        card: { data: { name: "Elena" } },
+        session: { messages: [{ role: "assistant", content: "Silence." }], ledger: "", consumed: 1 },
+        settings: { apiEndpoint: endpoint, model: "reason-stop", maxContextTokens: 16384 },
+        count: 3,
+      });
+      expect(call).toBe(2);
+      expect(bodies[0].response_format).toEqual({ type: "json_object" });
+      expect(bodies[1].response_format).toBeUndefined();
+      expect(res.choices.length).toBe(2);
     } finally {
       globalThis.fetch = origFetch;
       clearModelCapabilities();

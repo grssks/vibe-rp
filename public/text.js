@@ -291,7 +291,10 @@ export function findImpersonationBoundary(text, { user = "" } = {}) {
     `(?:\\r?\\n)+(?:\\*{1,2})?(?:(?:${metaLabels.join("|")})(?:\\*{1,2})?(?:\\s*[:：]|\\s+[—–-])|(?:${speakerLabels.join("|")})(?:\\*{1,2})?\\s*[:：])(?:\\*{1,2})?\\s*(?:["“*「『\\w\\p{L}]|$)`,
     "iu"
   );
-  const match = pattern.exec(text);
+  const masked = text
+    .replace(/<(thought|think|reasoning)[^>]*>[\s\S]*?<\/\1>/gi, (m) => " ".repeat(m.length))
+    .replace(/<(thought|think|reasoning)[^>]*>[\s\S]*$/gi, (m) => " ".repeat(m.length));
+  const match = pattern.exec(masked);
   return match ? match.index : -1;
 }
 

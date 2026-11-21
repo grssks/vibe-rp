@@ -3,6 +3,7 @@
 import { stripThoughtBlocks, resolveCardIdentity } from "./text.js";
 import {
   estimateTokens,
+  countMessages,
   SUMMARY_MAX_TOKENS,
   SUMMARY_REASONING_HEADROOM,
   SUMMARY_FLOOR_TOKENS,
@@ -17,7 +18,15 @@ import {
   fitFoldLedgerTokens,
   resolveContextBudgets,
 } from "./context_plan.js";
-import { sessionOverheadTokens, effectiveContextWindow, summaryModelOf, noteObservedReasoning } from "./model_capability.js";
+import {
+  getModelCapability,
+  sessionOverheadTokens,
+  sessionTokenRatio,
+  effectiveContextWindow,
+  summaryModelOf,
+  noteObservedReasoning,
+  notePromptOverhead,
+} from "./model_capability.js";
 import { ensembleCast, firstText } from "./prompt_builder.js";
 import { resolveEndpoint, postWithParamRetry, buildAuxiliaryBody, extractMessageText, hasReasoningField } from "./llm_transport.js";
 
@@ -94,15 +103,22 @@ function serializeForSummary(messages, card, persona) {
   return lines.join("\n\n");
 }
 
-function summaryBudget({ settings, transcript, previousLedger, extraTokens = 0, overheadTokens = 0 }) {
+function summaryBudget({ settings, transcript, previousLedger, extraTokens = 0, overheadTokens = 0, session = null }) {
+  const summarySettings = summarySettingsFor(settings);
   const prompt = previousLedger ? SUMMARY_UPDATE_PROMPT : SUMMARY_PROMPT;
+  const ratio = sessionTokenRatio(summarySettings, session);
+  const scale = ratio > 1.02 ? ratio : 1;
+  const rawWindow = resolveFoldWindow(settings);
+  const scaledWindow = rawWindow > 0 ? Math.max(0, Math.floor(rawWindow / scale)) : 0;
+  const isReasoning = Boolean(getModelCapability(settings?.apiEndpoint, summarySettings.model).observedReasoning);
   return resolveSummaryBudget({
     transcriptTokens: estimateTokens(transcript),
     ledgerTokens: estimateTokens(previousLedger || ""),
     promptTokens: estimateTokens(SUMMARY_SYSTEM_PROMPT) + estimateTokens(prompt) + 16,
-    overheadTokens,
-    contextWindow: resolveFoldWindow(settings),
+    overheadTokens: Math.ceil(overheadTokens / scale),
+    contextWindow: scaledWindow,
     hasPriorLedger: Boolean(previousLedger),
+    isReasoning,
     extraTokens,
   });
 }
@@ -121,16 +137,20 @@ function fitFoldLedger(previousLedger, { contextWindow, promptTokens, overheadTo
   return clipLedgerToTokens(ledger, fitted, "\n- [older ledger material omitted from this fold request at the window limit]");
 }
 
-function buildSummaryPlan({ settings, transcript, previousLedger, extraTokens = 0, overheadTokens = 0 }) {
+function buildSummaryPlan({ settings, transcript, previousLedger, extraTokens = 0, overheadTokens = 0, session = null }) {
   const summarySettings = summarySettingsFor(settings);
-  const contextWindow = resolveFoldWindow(summarySettings);
+  const rawWindow = resolveFoldWindow(summarySettings);
+  const ratio = sessionTokenRatio(summarySettings, session);
+  const scale = ratio > 1.02 ? ratio : 1;
+  const contextWindow = rawWindow > 0 ? Math.max(0, Math.floor(rawWindow / scale)) : 0;
+  const scaledOverhead = Math.ceil(overheadTokens / scale);
   const prompt = previousLedger ? SUMMARY_UPDATE_PROMPT : SUMMARY_PROMPT;
   const promptTokens = estimateTokens(SUMMARY_SYSTEM_PROMPT) + estimateTokens(prompt) + 16;
   const margin = Math.max(TOKEN_SAFETY_MARGIN, resolveSafetyMargin(contextWindow));
 
   let effectiveTranscript = transcript;
   if (contextWindow > 0) {
-    const maxTranscriptTokens = contextWindow - promptTokens - overheadTokens - SUMMARY_FLOOR_TOKENS - margin;
+    const maxTranscriptTokens = contextWindow - promptTokens - scaledOverhead - SUMMARY_FLOOR_TOKENS - margin;
     if (maxTranscriptTokens <= 0) {
       return { impossible: true, messages: null, budget: 0, effectiveTranscript: "", fittedLedger: "", model: summarySettings.model || "" };
     }
@@ -146,7 +166,7 @@ function buildSummaryPlan({ settings, transcript, previousLedger, extraTokens = 
   const fittedLedger = fitFoldLedger(previousLedger, {
     contextWindow,
     promptTokens,
-    overheadTokens,
+    overheadTokens: scaledOverhead,
     transcriptTokens: estimateTokens(effectiveTranscript),
   });
   const finalPrompt = fittedLedger ? SUMMARY_UPDATE_PROMPT : SUMMARY_PROMPT;
@@ -160,6 +180,7 @@ function buildSummaryPlan({ settings, transcript, previousLedger, extraTokens = 
     previousLedger: fittedLedger,
     extraTokens,
     overheadTokens,
+    session,
   });
   return {
     impossible: false,
@@ -174,8 +195,8 @@ function buildSummaryPlan({ settings, transcript, previousLedger, extraTokens = 
   };
 }
 
-async function summaryAttempt({ base, headers, settings, transcript, previousLedger, signal, overheadTokens = 0, extraTokens = 0 }) {
-  const plan = buildSummaryPlan({ settings, transcript, previousLedger, extraTokens, overheadTokens });
+async function summaryAttempt({ base, headers, settings, transcript, previousLedger, signal, overheadTokens = 0, extraTokens = 0, session = null }) {
+  const plan = buildSummaryPlan({ settings, transcript, previousLedger, extraTokens, overheadTokens, session });
   if (plan.impossible) {
     return { impossible: true, text: null, retry: false, extraTokens: 0, truncated: false };
   }
@@ -202,17 +223,22 @@ async function summaryAttempt({ base, headers, settings, transcript, previousLed
   const data = await res.json();
   const choice = data?.choices?.[0];
   noteObservedReasoning(settings?.apiEndpoint, plan.model, data?.usage, hasReasoningField(choice?.message));
+  if (typeof data?.usage?.prompt_tokens === "number") {
+    notePromptOverhead(settings?.apiEndpoint, plan.model, data.usage.prompt_tokens, countMessages(plan.messages));
+  }
   const rawText = extractMessageText(choice?.message?.content);
   const cleanText = rawText ? stripThoughtBlocks(rawText).trim() : "";
   const hasText = cleanText.length > 0;
   const truncated = choice?.finish_reason === "length";
-  const extra = Math.max(SUMMARY_REASONING_HEADROOM, Math.floor(Math.max(0, SUMMARY_MAX_TOKENS - plan.budget) / 2));
+  const maxCeiling = Math.max(SUMMARY_MAX_TOKENS, Math.min(16384, Math.floor(resolveFoldWindow(settings) * 0.45)));
+  const extra = Math.max(SUMMARY_REASONING_HEADROOM * 2, Math.floor(Math.max(0, maxCeiling - plan.budget) * 0.6));
   const nextBudget = summaryBudget({
     settings,
     transcript: plan.effectiveTranscript,
     previousLedger: plan.fittedLedger,
     overheadTokens,
     extraTokens: extra,
+    session,
   });
   const retry = (!hasText || truncated) && nextBudget > plan.budget;
   return {
@@ -230,7 +256,7 @@ async function summarize({ settings, messages, card, persona, previousLedger, si
   const { base, headers } = resolveEndpoint(settings);
   const summarySettings = summarySettingsFor(settings);
   const overheadTokens = sessionOverheadTokens(summarySettings, session);
-  const first = await summaryAttempt({ base, headers, settings, transcript, previousLedger, signal, overheadTokens });
+  const first = await summaryAttempt({ base, headers, settings, transcript, previousLedger, signal, overheadTokens, session });
   if (first.impossible) return null;
   if (!first.retry) return { text: first.text, truncated: first.truncated };
   const second = await summaryAttempt({
@@ -242,6 +268,7 @@ async function summarize({ settings, messages, card, persona, previousLedger, si
     signal,
     overheadTokens,
     extraTokens: first.extraTokens,
+    session,
   });
   return second.text
     ? { text: second.text, truncated: second.truncated }
@@ -345,11 +372,15 @@ export async function boundLedger({ settings, ledger, signal, session = null }) 
     const { base, headers } = resolveEndpoint(settings);
     const summarySettings = summarySettingsFor(settings);
     const model = summarySettings.model || "";
-    const contextWindow = resolveFoldWindow(settings);
-    const overheadTokens = sessionOverheadTokens(summarySettings, session);
+    const rawWindow = resolveFoldWindow(settings);
+    const ratio = sessionTokenRatio(summarySettings, session);
+    const scale = ratio > 1.02 ? ratio : 1;
+    const contextWindow = rawWindow > 0 ? Math.max(0, Math.floor(rawWindow / scale)) : 0;
+    const overheadTokens = Math.ceil(sessionOverheadTokens(summarySettings, session) / scale);
     const promptTokens = estimateTokens(SUMMARY_SYSTEM_PROMPT) + estimateTokens(LEDGER_COMPRESS_PROMPT) + 16;
     const ledgerFits = fitFoldLedger(ledger, { contextWindow, promptTokens, overheadTokens, transcriptTokens: 0 });
     if (ledgerFits !== ledger) return { ledger: boundLedgerSync(ledger), compressed: true };
+    const isReasoning = Boolean(getModelCapability(settings?.apiEndpoint, model).observedReasoning);
     const compressBudget = resolveSummaryBudget({
       transcriptTokens: 0,
       ledgerTokens: estimateTokens(ledger),
@@ -357,6 +388,7 @@ export async function boundLedger({ settings, ledger, signal, session = null }) 
       overheadTokens,
       contextWindow,
       hasPriorLedger: true,
+      isReasoning,
     });
     const messages = [
       { role: "system", content: SUMMARY_SYSTEM_PROMPT },
@@ -376,12 +408,15 @@ export async function boundLedger({ settings, ledger, signal, session = null }) 
           outputTokens: compressBudget,
           temperature: 0.1,
           capReasoningLow: true,
+          forceReasoningLow: true,
         }),
     });
     if (res.ok) {
       const data = await res.json();
-      const rawText = data?.choices?.[0]?.message?.content;
-      const clean = typeof rawText === "string" ? stripThoughtBlocks(rawText).trim() : "";
+      const choice = data?.choices?.[0];
+      noteObservedReasoning(settings?.apiEndpoint, model, data?.usage, hasReasoningField(choice?.message));
+      const rawText = extractMessageText(choice?.message?.content);
+      const clean = rawText ? stripThoughtBlocks(rawText).trim() : "";
       if (clean && estimateTokens(clean) < estimateTokens(ledger)) {
         return { ledger: boundLedgerSync(clean), compressed: true };
       }

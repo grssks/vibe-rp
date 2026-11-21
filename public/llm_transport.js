@@ -5,7 +5,7 @@ import {
   MIN_OUTPUT_TOKENS,
   resolveContextBudgets,
 } from "./context_plan.js";
-import { extractThoughtBlocks } from "./text.js";
+import { extractThoughtBlocks, stripThoughtBlocks } from "./text.js";
 import {
   getModelCapability,
   updateModelCapability,
@@ -137,8 +137,8 @@ export function providerContextWindow(err) {
     /(?:maximum|max)\s+context\s+(?:length|window|size)\s*(?:is|of|:)?\s*\(?(\d{3,9})\)?/i,
     /exceeds?\s+the\s+available\s+context\s+size\s*\(?(\d{3,9})\)?/i,
     /exceeds?\s+the\s+maximum\s+number\s+of\s+tokens\s+allowed\s*\(?(\d{3,9})\)?/i,
-    /context\s+(?:length|window|size)\s*(?:is|of|:)?\s*\(?(\d{3,9})\)?/i,
-    /\d{3,9}\s*(?:tokens?\s*)?>\s*(\d{3,9})\s*(?:maximum|max)/i,
+    /\d{3,9}\s*(?:tokens?\s*)?(?:>|exceeds?(?:\s+limit\s+of)?)\s*\(?(\d{3,9})\)?\s*(?:maximum|max|tokens?)?/i,
+    /context\s+(?:length|window|size)\s*(?:is|of|:)\s*\(?(\d{3,9})\)?/i,
   ];
   for (const re of patterns) {
     const m = message.match(re);
@@ -362,7 +362,16 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
   let sawRefusal = false;
   let sawEvent = false;
   let sawContent = false;
+  let contentAccum = "";
   let corruptLines = 0;
+  const emitChunk = (chunk) => {
+    sawContent = true;
+    if (contentAccum.length < RAW_ACCUM_LIMIT) {
+      contentAccum += chunk.slice(0, RAW_ACCUM_LIMIT - contentAccum.length);
+    }
+    if (onCleanChunk) onCleanChunk(chunk);
+    return chunk;
+  };
 
   const readPayload = (json) => {
     if (json && json.error) throw providerError(json.error);
@@ -458,9 +467,7 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
           buffer = lines.pop() || "";
           for (const line of lines) {
             for (const chunk of consumeLine(line)) {
-              sawContent = true;
-              if (onCleanChunk) onCleanChunk(chunk);
-              yield chunk;
+              yield emitChunk(chunk);
             }
           }
         }
@@ -478,15 +485,11 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
     }
     if (buffer.trim()) {
       for (const chunk of consumeLine(buffer)) {
-        sawContent = true;
-        if (onCleanChunk) onCleanChunk(chunk);
-        yield chunk;
+        yield emitChunk(chunk);
       }
     }
     for (const chunk of flushEvent()) {
-      sawContent = true;
-      if (onCleanChunk) onCleanChunk(chunk);
-      yield chunk;
+      yield emitChunk(chunk);
     }
     const wholeRaw = (!sawEvent && rawAccum.trim()) ? rawAccum : (!sawEvent && buffer.trim()) ? buffer : "";
     if (wholeRaw) {
@@ -499,9 +502,7 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
       if (json) {
         const chunk = readPayload(json);
         if (chunk) {
-          sawContent = true;
-          if (onCleanChunk) onCleanChunk(chunk);
-          yield chunk;
+          yield emitChunk(chunk);
         }
       }
     }
@@ -516,22 +517,16 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
     if (json) {
       const chunk = readPayload(json);
       if (chunk) {
-        sawContent = true;
-        if (onCleanChunk) onCleanChunk(chunk);
-        yield chunk;
+        yield emitChunk(chunk);
       }
     } else {
       for (const line of raw.split("\n")) {
         for (const chunk of consumeLine(line)) {
-          sawContent = true;
-          if (onCleanChunk) onCleanChunk(chunk);
-          yield chunk;
+          yield emitChunk(chunk);
         }
       }
       for (const chunk of flushEvent()) {
-        sawContent = true;
-        if (onCleanChunk) onCleanChunk(chunk);
-        yield chunk;
+        yield emitChunk(chunk);
       }
     }
   }
@@ -540,13 +535,18 @@ export async function* streamDirect(settings, messages, onCleanChunk, onUsage, s
   noteObservedReasoning(endpoint, model, usage, sawReasoningDelta);
   noteCacheObservation(endpoint, model, usage);
 
-  if (sawContent && corruptLines > 0 && onLengthCut) {
+  const hasVisibleContent = sawContent && stripThoughtBlocks(contentAccum).trim().length > 0;
+  if (sawContent && !hasVisibleContent) {
+    sawReasoning = true;
+  }
+
+  if (hasVisibleContent && corruptLines > 0 && onLengthCut) {
     onLengthCut(
       `The provider sent ${corruptLines} unreadable stream fragment${corruptLines === 1 ? "" : "s"} that ${corruptLines === 1 ? "was" : "were"} skipped; the reply may be missing a sentence.`
     );
   }
 
-  if (!sawContent) {
+  if (!hasVisibleContent) {
     throw emptyCompletionError({ finishReason, sawReasoning, sawRefusal, usage });
   }
   if (finishReason === "length" && onLengthCut) {

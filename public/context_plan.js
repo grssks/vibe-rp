@@ -207,21 +207,30 @@ export function resolveSummaryBudget({
   overheadTokens = 0,
   contextWindow = 0,
   hasPriorLedger = false,
+  isReasoning = false,
   extraTokens = 0,
 } = {}) {
   const transcript = Math.max(0, Number(transcriptTokens) || 0);
   const ledger = Math.max(0, Number(ledgerTokens) || 0);
   const overhead = Math.max(0, Number(promptTokens) || 0) + Math.max(0, Number(overheadTokens) || 0);
   const workload = transcript + Math.floor(ledger * 0.5);
-  let budget = scaleSummaryBudget(workload) + Math.max(0, Number(extraTokens) || 0);
-  if (hasPriorLedger) budget = Math.min(SUMMARY_MAX_TOKENS, budget + SUMMARY_REASONING_HEADROOM);
   const window = Math.max(0, Number(contextWindow) || 0);
+  let budget = scaleSummaryBudget(workload) + Math.max(0, Number(extraTokens) || 0);
+  if (hasPriorLedger) budget += SUMMARY_REASONING_HEADROOM;
+  if (isReasoning) {
+    budget += Math.max(SUMMARY_REASONING_HEADROOM * 3, Math.floor(window * 0.12));
+  }
+  const effectiveMax =
+    (isReasoning || extraTokens > 0) && window > 0
+      ? Math.max(SUMMARY_MAX_TOKENS, Math.min(16384, Math.floor(window * 0.45)))
+      : SUMMARY_MAX_TOKENS;
+  budget = Math.min(effectiveMax, budget);
   if (window > 0) {
     const margin = Math.max(TOKEN_SAFETY_MARGIN, resolveSafetyMargin(window));
     const headroom = window - (overhead + transcript + ledger) - margin;
     budget = Math.max(SUMMARY_FLOOR_TOKENS, Math.min(budget, headroom));
   }
-  return Math.max(SUMMARY_FLOOR_TOKENS, Math.min(SUMMARY_MAX_TOKENS, budget));
+  return Math.max(SUMMARY_FLOOR_TOKENS, Math.min(effectiveMax, budget));
 }
 
 export function fitFoldLedgerTokens({ contextWindow = 0, promptTokens = 0, overheadTokens = 0, transcriptTokens = 0, ledgerTokens = 0 } = {}) {

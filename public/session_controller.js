@@ -798,7 +798,7 @@ export class SessionController {
     // content-less stream; this is the last-resort guard for an engine that
     // returns empty text without throwing. send() rolls the turn back so retry
     // is clean.
-    if (!assistantMsg.content) {
+    if (!stripThoughtBlocks(assistantMsg.content).trim()) {
       if (this.choiceState.status === CHOICE_STATUS.SUBMITTING) this.#resetChoiceState();
       if (assistantMsg && targetSession?.messages) {
         const idx = targetSession.messages.indexOf(assistantMsg);
@@ -945,10 +945,23 @@ export class SessionController {
         },
         onNotice: (notice) => this.#surfaceNotice(notice, onNotice, last),
       });
-      if (!added && typeof returnedText === "string" && returnedText) {
-        const sep = baseContent && !/\s$/.test(baseContent) && !/^\s/.test(returnedText) ? " " : "";
-        last.content = baseContent + sep + returnedText;
-        onChunk?.(sep + returnedText, last);
+      const rawContinuation = typeof returnedText === "string" && returnedText ? returnedText : added;
+      const extracted = extractThoughtBlocks(rawContinuation);
+      const hasThoughtTag = Boolean(extracted.thought || extracted.isThinking);
+      if (extracted.thought) {
+        last.thought = [baseThought, extracted.thought].filter(Boolean).join("\n\n");
+      }
+      const cleanContinuation = hasThoughtTag ? stripThoughtBlocks(rawContinuation) : rawContinuation;
+      if (cleanContinuation.trim()) {
+        if (hasThoughtTag || (!added && typeof returnedText === "string" && returnedText)) {
+          const sep = baseContent && !/\s$/.test(baseContent) && !/^\s/.test(cleanContinuation) ? " " : "";
+          last.content = baseContent + sep + cleanContinuation;
+          if (!added && typeof returnedText === "string" && returnedText) {
+            onChunk?.(sep + cleanContinuation, last);
+          }
+        }
+      } else {
+        last.content = baseContent;
       }
     } catch (err) {
       if (err?.name === "AbortError" && this.#keepPartialOnCancel && added.trim().length > 0) {

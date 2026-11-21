@@ -39,11 +39,6 @@ import { DEFAULT_AGENTS_CONTRACT, COMPACT_AGENTS_CONTRACT } from "./local_db.js"
 
 const LEDGER_FRAMING_TOKENS = ledgerFramingTokens();
 
-export const CHOICE_LEDGER_TOKENS = 700;
-export const CHOICE_RECENT_TOKENS = 2200;
-export const CHOICE_MAX_OUTPUT_TOKENS = 768;
-export const CHOICE_REASONING_MAX_OUTPUT_TOKENS = 4096;
-
 /** First field carrying author-written string text, or "". */
 export function firstText(...values) {
   for (const value of values) {
@@ -580,7 +575,7 @@ export function planRequest({ card, session, settings, persona, agentsContract, 
   ].join(" ");
   const queryText = substituteCardPlaceholders(rawQueryText, card, activePersona);
   const dynamicLore = selectLorebookEntries(card, {
-    budget: Math.max(1000, Math.min(4096, Math.floor(budgets.loreBudget))),
+    budget: Math.floor(budgets.loreBudget),
     constantOnly: false,
     recentText: queryText,
     maxEntries: 6,
@@ -653,12 +648,16 @@ export function planRequest({ card, session, settings, persona, agentsContract, 
   const adaptiveTokens = adaptive.tokens;
   const guidanceTokens = loreTokens + adaptiveTokens;
 
+  const CONTINUE_PROMPT =
+    "[Continue the scene directly from the exact last sentence above in the same voice, perspective, and language, without repeating or summarizing the preceding line.]";
   const nonEmpty = all.filter((m) => m && m.content);
   const pinned = nonEmpty.length ? [nonEmpty[0]] : [];
   const currentTurn = nonEmpty.length > 1 ? nonEmpty[nonEmpty.length - 1] : null;
   const pinnedTokens = countMessages(pinned);
   const draftTokens = typeof draft === "string" && draft.trim() ? estimateTokens(draft.trim()) + 4 : 0;
-  const currentTurnTokens = (currentTurn ? estimateTokens(currentTurn.content) + 4 : 0) + draftTokens;
+  const isContinueTurn = Boolean(continueMode && nonEmpty.length > 0 && nonEmpty[nonEmpty.length - 1]?.role === "assistant");
+  const continueTokens = isContinueTurn ? estimateTokens(CONTINUE_PROMPT) + 4 : 0;
+  const currentTurnTokens = (currentTurn ? estimateTokens(currentTurn.content) + 4 : 0) + draftTokens + continueTokens;
 
   const desiredOutput = typeof activeSettings.maxTokens === "number" ? activeSettings.maxTokens : budgets.maxOutput;
   const scaledDesiredOutput = Math.ceil(desiredOutput / scale);
@@ -708,24 +707,20 @@ export function planRequest({ card, session, settings, persona, agentsContract, 
 
   const subbed = (list) =>
     list.map((m) => ({ role: m.role, content: substituteCardPlaceholders(m.content, card, activePersona) }));
-  const assemble = (history) =>
-    assembleMessages({
+  const assemble = (history) => {
+    const resolved = subbed(history);
+    if (continueMode && resolved.length > 0 && resolved[resolved.length - 1]?.role === "assistant") {
+      resolved.push({ role: "user", content: CONTINUE_PROMPT });
+    }
+    return assembleMessages({
       systemPrompt,
-      history: subbed(history),
+      history: resolved,
       ledger: requestLedger,
       postHistoryInstructions: fullPostHistory,
     });
+  };
 
   let payload = assemble(plan.history);
-  if (continueMode && payload.length > 0 && payload[payload.length - 1]?.role === "assistant") {
-    payload = [
-      ...payload,
-      {
-        role: "user",
-        content: "[Continue the scene directly from the exact last sentence above in the same voice, perspective, and language, without repeating or summarizing the preceding line.]",
-      },
-    ];
-  }
   let inputTokens = countMessages(payload);
   if (inputTokens > alloc.inputBudget && plan.history.length > 1) {
     const truncated = truncateHistory(plan.history, activeSettings, requestLedger, guidanceTokens, alloc.inputBudget, systemPrompt);
@@ -856,17 +851,27 @@ export function planChoiceRequest({
   const margin = resolveSafetyMargin(baseWindow);
   const choiceCap = getModelCapability(settings?.apiEndpoint, choiceModel);
   const isReasoningChoice = Boolean(choiceCap.observedReasoning || boostOutput);
-  const adaptiveReasoningMax = Math.max(
-    CHOICE_REASONING_MAX_OUTPUT_TOKENS,
-    Math.min(8192, Math.floor(Math.max(0, baseWindow - choiceOverhead - margin) * 0.25))
+  const usableWindow = Math.max(0, baseWindow - choiceOverhead - margin);
+  const windowChoiceTarget = Math.max(MIN_OUTPUT_TOKENS, Math.floor((baseWindow * 3) / 32));
+  const configuredMax =
+    typeof choiceSettings?.maxTokens === "number" && choiceSettings.maxTokens > 0
+      ? Math.max(MIN_OUTPUT_TOKENS, choiceSettings.maxTokens)
+      : null;
+  const reasonShare = boostOutput ? 0.5 : 0.35;
+  const rawReasonTarget = Math.max(
+    windowChoiceTarget,
+    configuredMax || 0,
+    Math.floor(usableWindow * reasonShare)
   );
-  const maxChoiceOutput = isReasoningChoice ? adaptiveReasoningMax : CHOICE_MAX_OUTPUT_TOKENS;
-  const desiredOutput = isReasoningChoice
-    ? Math.max(MIN_OUTPUT_TOKENS, maxChoiceOutput)
-    : Math.max(
-        MIN_OUTPUT_TOKENS,
-        Math.min(CHOICE_MAX_OUTPUT_TOKENS, typeof choiceSettings?.maxTokens === "number" ? choiceSettings.maxTokens : CHOICE_MAX_OUTPUT_TOKENS)
-      );
+  const maxChoiceOutput = isReasoningChoice
+    ? Math.max(MIN_OUTPUT_TOKENS, Math.min(rawReasonTarget, Math.floor(usableWindow * 0.6)))
+    : configuredMax !== null
+      ? Math.min(windowChoiceTarget, configuredMax)
+      : windowChoiceTarget;
+  const desiredOutput = maxChoiceOutput;
+  const minRequiredOutput = isReasoningChoice
+    ? Math.min(maxChoiceOutput, Math.max(MIN_OUTPUT_TOKENS, Math.floor(usableWindow * 0.3)))
+    : MIN_OUTPUT_TOKENS;
 
   const stripTrailingGuidance = (payload) => {
     if (!Array.isArray(payload) || payload.length === 0) return payload || [];
@@ -902,12 +907,16 @@ export function planChoiceRequest({
       const fullPayload = [...stripTrailingGuidance(fullMain.payload), { role: "user", content: taskContent }];
       const fullInput = countMessages(fullPayload);
       const fullRealInput = choiceScale > 1 ? Math.ceil(fullInput * choiceScale) : fullInput;
-      const fullOutCap = isReasoningChoice ? maxChoiceOutput : Math.min(maxChoiceOutput, fullMain.outputTokens);
       const fullOut = Math.max(
         MIN_OUTPUT_TOKENS,
-        Math.min(fullOutCap, baseWindow - margin - fullRealInput - choiceOverhead)
+        Math.min(maxChoiceOutput, baseWindow - margin - fullRealInput - choiceOverhead)
       );
-      if (!fullMain.impossible && !fullMain.plan.compacted && fullRealInput + fullOut + choiceOverhead <= baseWindow) {
+      if (
+        !fullMain.impossible &&
+        !fullMain.plan.compacted &&
+        fullOut >= minRequiredOutput &&
+        fullRealInput + fullOut + choiceOverhead <= baseWindow
+      ) {
         main = { ...fullMain, outputTokens: fullOut };
       }
     }
@@ -915,12 +924,14 @@ export function planChoiceRequest({
     const mainPayload = [...stripTrailingGuidance(main.payload), { role: "user", content: taskContent }];
     const mainInputTokens = countMessages(mainPayload);
     const mainRealInput = choiceScale > 1 ? Math.ceil(mainInputTokens * choiceScale) : mainInputTokens;
-    const choiceOutCap = isReasoningChoice ? maxChoiceOutput : Math.min(maxChoiceOutput, main.outputTokens);
     const choiceOutput = Math.max(
       MIN_OUTPUT_TOKENS,
-      Math.min(choiceOutCap, baseWindow - margin - mainRealInput - choiceOverhead)
+      Math.min(maxChoiceOutput, baseWindow - margin - mainRealInput - choiceOverhead)
     );
-    const mainFits = !main.impossible && mainRealInput + choiceOutput + choiceOverhead <= baseWindow;
+    const mainFits =
+      !main.impossible &&
+      choiceOutput >= minRequiredOutput &&
+      mainRealInput + choiceOutput + choiceOverhead <= baseWindow;
     if (mainFits) {
       return {
         payload: mainPayload,
@@ -959,9 +970,10 @@ export function planChoiceRequest({
   const head = [{ role: "system", content: compactSystem }];
   const headTokens = estimateTokens(compactSystem) + 4;
   const taskOnlyTokens = estimateTokens(`${task}${steerTail}`) + 4;
-  const maxEstWindow = Math.max(0, Math.floor((baseWindow - choiceOverhead - margin - MIN_OUTPUT_TOKENS) / choiceScale));
-  const recentLimit = Math.max(CHOICE_RECENT_TOKENS, Math.min(4400, Math.floor(maxEstWindow * 0.25)));
-  const ledgerLimit = Math.max(CHOICE_LEDGER_TOKENS, Math.min(1400, Math.floor(maxEstWindow * 0.1)));
+  const reservedOutput = Math.min(desiredOutput, Math.max(MIN_OUTPUT_TOKENS, Math.floor(usableWindow * 0.5)));
+  const maxEstWindow = Math.max(0, Math.floor((usableWindow - reservedOutput) / choiceScale));
+  const recentLimit = Math.max(MIN_OUTPUT_TOKENS, Math.floor(Math.sqrt(maxEstWindow) * 25));
+  const ledgerLimit = Math.floor(recentLimit * 0.32);
   let budget = Math.min(recentLimit, maxEstWindow - headTokens - taskOnlyTokens);
 
   const storedLedger = session?.ledger || "";
