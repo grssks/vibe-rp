@@ -2,7 +2,7 @@
 // all browser/fetch behavior goes through the caller-supplied global fetch.
 
 import { parseJsonLoose, normalizeCard, stripJsonComments, parsePngChara, parseWebpChara, htmlToAppMarkup } from "./card_parse.js";
-import { ensureFreshSession, refreshSession, maybeAutoStartProactiveRefresh } from "./session_refresh.js";
+import { ensureFreshSession, refreshSession, maybeAutoStartProactiveRefresh, sessionExpiresAt } from "./session_refresh.js";
 import { utf8Decoder, resolveCardIdentity } from "./text.js";
 
 // Fetch is injectable so callers (and tests) can supply one; default is global.
@@ -148,9 +148,10 @@ export function mapSourceJsonToCard(json, sourceUrl) {
     .filter(Boolean)
     .concat(json.custom_tags || []);
   if (tags.length) data.tags = tags;
-  const ext = {
-    source: { avatar_url: `https://ella.janitorai.com/bot-avatars/${json.avatar}?width=400` },
-  };
+  const sourceMeta = typeof json.avatar === "string" && json.avatar.trim()
+    ? { avatar_url: `https://ella.janitorai.com/bot-avatars/${json.avatar.trim()}?width=400` }
+    : {};
+  const ext = { source: sourceMeta };
   if (data.name !== json.name) ext.source.title = json.name;
   if (json.is_nsfw !== undefined) ext.source.is_nsfw = json.is_nsfw;
   if (json.allow_proxy !== undefined) ext.source.allow_proxy = json.allow_proxy;
@@ -178,9 +179,17 @@ export async function fetchRemoteCard(uuid, sourceUrl, sessionToken, options) {
   const headers = {};
   const token = sessionToken?.accessToken;
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  const res = await resolveFetch(options)(`https://janitorai.com/hampter/characters/${uuid}`, { headers });
+  const res = await resolveFetch(options)(`https://janitorai.com/hampter/characters/${uuid}`, {
+    headers,
+    signal: options?.signal,
+  });
   if (!res.ok) throw new Error(`The character page API returned ${res.status} for this character.`);
-  const json = await res.json();
+  let json;
+  try {
+    json = await res.json();
+  } catch {
+    throw new Error("The character page API returned invalid JSON.");
+  }
   const card = mapSourceJsonToCard(json, sourceUrl);
   // The API fails silently as anonymous: 200 with stripped definition fields.
   // When a session was supplied that must not happen, so report it as an auth
@@ -208,14 +217,24 @@ export async function parseCardUrl(url, sessionToken, options) {
         session = await ensureFreshSession(session, options || {});
       } catch { /* keep the original session */ }
     }
-    if (session?.expiresAt && Date.now() / 1000 > session.expiresAt) {
+    const exp = sessionExpiresAt(session);
+    if (exp && Date.now() / 1000 > exp) {
       throw new Error("Your stored session has expired. Re-export your session cookies and paste them in Settings → Engine → Import session.");
     }
     return fetchRemoteCard(uuid, trimmed, session, options);
   }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(trimmed);
+  } catch {
+    throw new Error("Could not parse URL: paste an http:// or https:// card link.");
+  }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error("Only http:// and https:// card URLs are supported.");
+  }
   let res;
   try {
-    res = await resolveFetch(options)(trimmed);
+    res = await resolveFetch(options)(trimmed, { signal: options?.signal });
   } catch {
     throw new Error("Could not fetch URL (network error): check the link and that the site allows browser access.");
   }
@@ -244,7 +263,8 @@ export async function parseCardUrl(url, sessionToken, options) {
   const contentType = (res.headers.get("content-type") || "").toLowerCase();
 
   if (contentType.includes("image/png") || contentType.includes("image/webp")) {
-    return sniffImage(ab);
+    const imgCard = await sniffImage(ab);
+    if (imgCard) return imgCard;
   }
   const text = utf8Decoder.decode(ab);
   const json = parseJsonLoose(stripJsonComments(text));

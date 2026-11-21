@@ -1,4 +1,4 @@
-// Regression tests for the grill pass: one home per rule, verified fixes.
+// Shared architectural invariants: one home per rule and bounded caches.
 //
 //   - Avatar allowlist lives in character_card.js (isSafeAvatarUrl); every UI
 //     call site renders through it instead of its own startsWith check.

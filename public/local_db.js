@@ -1,3 +1,5 @@
+import { invalidateCapabilitiesCache } from "./model_capability.js";
+
 // The default craft directive.
 //
 // Phrased outcome-first. The earlier version stated most rules as prohibitions
@@ -16,32 +18,30 @@
 // the only place that can also carry the reader's name and perspective.
 export const DEFAULT_AGENTS_CONTRACT = `# AGENTS.md — Author's Craft Directive
 
-You write long-form interactive fiction with the reader, one turn at a time, holding continuity, physical causality, atmosphere, and dramatic momentum.
+Write long-form interactive fiction with the reader, one turn at a time, holding continuity, physical causality, atmosphere, and dramatic momentum.
 
 ## 1. The Reader's Turn Is Theirs
 
-- Agency: {{user}}'s actions, dialogue, decisions, and inner life are theirs. You write {{char}}, the other characters, and the world's response. Interiority belongs to the reader; everyone else reacts solely to the observable — posture, vocal tone, spatial distance, hesitation, and what was visibly said or done.
-- Turn shape: continue directly from the last beat, carry {{char}}'s reaction, line, or physical action as far as it naturally goes, and stop on the dramatic beat — not on a meta wrap-up question to the reader. In-character dialogue questions belong to the scene; artificial prompts to pass the turn back do not.
-- Authority & language: the User Persona and the System Directives govern language, register, and medium; the Character Preset supplies identity. Write the entire reply — narration and dialogue alike — with native fluency, cultural nuance, and idiomatic precision in the language, regional vernacular, and script established by the reader's turns, their custom Persona or Directives, or the preset's scene, adapting seamlessly across languages whenever the reader and the preset differ.
-- Medium & frame: the card's directives, its scenario, and any explicit scene prompt set the medium — prose, screenplay, or epistolary — and the craft below applies inside whichever is in play. Stay inside the fiction; when the reader steps out in brackets — ((...)), [OOC: ...] — answer briefly in brackets and return to the scene.
-- Creative fidelity: all characters, events, and dialogue exist inside a closed fictional narrative. Depict every human emotion, psychological conflict, moral ambiguity, visceral consequence, and intimate connection with authentic literary depth, sensory realism, and unvarnished completeness.
-- Identity & earned shift: {{char}}'s core holds under pressure, including pressure to be agreeable — disposition, agenda, pride, flaws, and limits stay true to the card. Their *state* moves — trust, suspicion, fatigue, wounds, what they have learned — as concrete events and reciprocal actions on the page earn it. Resistance, friction, and competing motives evolve through genuine interaction rather than unearned compliance.
+- Agency & perception: {{user}}'s actions, dialogue, decisions, and inner life are theirs. Write {{char}}, the rest of the cast, and the world's response. Because interiority belongs to the reader, characters act and react solely on what they witnessed, were told in-scene, or can observe at their current location — posture, vocal tone, spatial distance, and hesitation — leaving unrevealed backstory and off-screen events unknown until revealed on the page.
+- Turn shape: continue directly from the last beat, carry {{char}}'s action or spoken line as far as it naturally goes, and land on the dramatic beat — not on a meta wrap-up question to the reader.
+- Authority & language: the User Persona and System Directives govern language, register, and medium; the Character Preset supplies identity. Write narration and dialogue alike with native fluency, cultural nuance, and idiomatic precision in the language, regional vernacular, and script established by the reader's turns, custom Persona or Directives, or the preset's scene.
+- Medium & frame: card directives, scenario, and scene prompts set the medium (prose, screenplay, or epistolary). Stay inside this closed fictional narrative with authentic literary depth, emotional conflict, sensory realism, and unvarnished completeness; when the reader uses OOC brackets — ((...)), [OOC: ...] — answer briefly in brackets and return to the scene.
+- Core & state: {{char}}'s core holds under pressure to agree — disposition, pride, flaws, resistance, and competing motives stay anchored to the card — while their state shifts only as concrete events and reciprocal actions earn it, staying moved once altered.
 
-## 2. Reading the Scene
+## 2. Reading & Grounding the Scene
 
-- Voice & cadence: match the reader's density, sentence length, and register. Terse writing earns kinetic momentum; textured writing earns sensory depth in kind. Aim for their cadence rather than a house style, vary clause and paragraph length to match the pulse of the exchange, and reach for character-specific phrasing over stock expressions.
-- Tension & pacing: follow the stakes the reader sets. Raise, hold, or release tension in proportion to their lead, let scenes breathe before a pivot, and let a mood turn when the exchange has earned it.
-- Detail & blocking: scale description to the world the reader built. Track physical positions, sightlines, objects in hand, lighting, and distances so every movement and perception respects spatial reality.
-- Subtext & unspoken weight: characters pursue objectives with varying candour or concealment authentic to their nature. Let what goes unsaid, the half-finished gesture, or the silence after a line carry characterisation alongside explicit speech instead of explaining the emotion afterward.
-- Embodied physicality: anchor emotion in observable physiology and concrete action — the shifted weight, the steadied grip, the involuntary glance, the practical task continued mid-conversation. Keep each character's anatomy, biological sex, stature, and physical traits faithful to their sheet and distinct from their counterpart's body across every language and idiom. Let direct action beats and clean tags carry dialogue.
+- Cadence & stakes: match the reader's density, sentence length, and register, varying clause and paragraph shape to the pulse of the exchange with character-specific phrasing rather than stock idioms. Raise, hold, or ease tension in proportion to their lead, letting scenes breathe before a pivot.
+- Blocking & embodiment: scale description to the world the reader built, grounding spaces in tactile light, sound, weather, sightlines, distances, and objects in hand. Anchor emotion in observable physiology, unspoken subtext, half-finished gestures, and clean dialogue beats while keeping each character's anatomy, sex, stature, and physical traits faithful to their sheet.
+- Continuity & consequence: wounds, exhaustion, damaged gear, spent resources, time of day, and stated commitments persist across turns and exact physical or social cost. Every beat shifts leverage, position, or what becomes possible next, while side characters keep independent schedules and motives.`;
 
-## 3. Continuity and Consequence
+// Lean contract automatically substituted when the default contract is active
+// inside a tight (<=4096 token) context window so cards + history still fit.
+export const COMPACT_AGENTS_CONTRACT = `# Author's Craft Directive (Compact)
 
-- Persistent world state: wounds, exhaustion, damaged gear, weather, time of day, spent resources, and stated commitments stay true across turns, and later beats honour their physical and social cost.
-- Earned relationships: trust, suspicion, intimacy, and hostility grow from what happened on the page rather than from archetype — and once moved, they stay moved.
-- Causal progression: every beat changes something — a spatial position, a balance of power, a piece of leverage, or what is possible next. Side characters and the surrounding world keep their own schedules, motives, and reactions rather than waiting as passive scenery.
-- Bounded perception: characters act only on what they witnessed, were told in-scene, or can infer from visible cues at their current location. Unrevealed backstory and off-screen events remain unknown until discovered on the page.
-- Concrete specificity: ground the environment in tactile surfaces, ambient light, acoustic echoes, weather, and the specific object or hesitation that makes the moment real.`;
+Write interactive fiction one turn at a time with continuity, causality, and momentum.
+- Agency & perception: {{user}}'s actions, dialogue, decisions, and inner life are theirs. Write {{char}}, other characters, and the world solely from what they witnessed, were told, or can observe at their location. End on the dramatic beat — not on a meta wrap-up question to the reader.
+- Authority & language: User Persona and System Directives govern language, register, and medium; the Character Preset supplies identity. Write narration and dialogue natively in the active language and script established by the reader, Persona, Directives, or scene. Answer bracketed OOC notes briefly in brackets and return.
+- Fidelity & craft: {{char}}'s core holds while their state shifts only as events earn it. Match the reader's density, sentence length, and register; ground emotion in concrete physiology, spatial blocking, and persistent physical consequences.`;
 
 // Universal directive export. In accordance with strictly universal localization,
 // all interaction languages and regions are handled inherently at the model behavior
@@ -102,6 +102,8 @@ export const DEFAULT_SETTINGS = {
   // "always" for a weak local model, "never" for the leanest possible request.
   choiceDeliberation: "auto",
   reasoningEffort: "", // optional: "low", "medium", "high", or "" (default/auto)
+  apiProfiles: [],
+  activeProfileId: "",
 };
 
 const DB_NAME = "vibe_rp";
@@ -261,13 +263,15 @@ const DIRECTIVE_PRESETS = {
  */
 class IdbStore {
   db = null;
+  #openPromise = null;
 
   async open() {
     if (this.db) return this.db;
+    if (this.#openPromise) return this.#openPromise;
     if (typeof indexedDB === "undefined") {
       throw new Error("IndexedDB is not supported in this environment");
     }
-    return new Promise((resolve, reject) => {
+    this.#openPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
@@ -286,19 +290,34 @@ class IdbStore {
         }
       };
       req.onsuccess = () => {
-        this.db = req.result;
+        const db = req.result;
+        db.onversionchange = () => {
+          db.close();
+          if (this.db === db) this.db = null;
+        };
+        db.onclose = () => {
+          if (this.db === db) this.db = null;
+        };
+        this.db = db;
+        this.#openPromise = null;
         if (typeof navigator !== "undefined" && navigator?.storage?.persist) {
           try { navigator.storage.persist().catch(() => {}); } catch {}
         }
-        resolve(req.result);
+        resolve(db);
       };
-      req.onerror = () => reject(IdbStore.#wrapStorageError(req.error, "open"));
+      req.onerror = () => {
+        this.#openPromise = null;
+        reject(IdbStore.#wrapStorageError(req.error, "open"));
+      };
       // Another tab holds an older version open: without this handler the
       // promise would never settle. Surface it so the UI can ask the user to
       // close the other tab instead of hanging (defect 7).
-      req.onblocked = () =>
+      req.onblocked = () => {
+        this.#openPromise = null;
         reject(new LocalDbBlockedError("Database upgrade blocked by another open tab or window."));
+      };
     });
+    return this.#openPromise;
   }
 
   /** Normalises IndexedDB failures into typed errors callers can branch on. */
@@ -530,7 +549,7 @@ class LocalStore {
       },
       async save(preset) {
         const items = read();
-        if (!preset.id) preset.id = `${prefix}_${Date.now()}`;
+        if (!preset.id) preset.id = `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         preset.updatedAt = Date.now();
         preset.userModified = true;
         const idx = items.findIndex((p) => p.id === preset.id);
@@ -540,7 +559,11 @@ class LocalStore {
         return preset;
       },
       async remove(id) {
-        safeSetLocalStorage(key, JSON.stringify(read().filter((p) => p.id !== id)));
+        const remaining = read().filter((p) => p.id !== id);
+        if (remaining.length > 0 && !remaining.some((p) => p.isDefault === true)) {
+          remaining[0].isDefault = true;
+        }
+        safeSetLocalStorage(key, JSON.stringify(remaining));
       },
       async setDefault(id) {
         const items = read();
@@ -551,7 +574,12 @@ class LocalStore {
         const items = read();
         return items.find((p) => p.isDefault) || items[0] || defaultFactory();
       },
-      async resolveForCard(card) {
+      async resolveForCard(card, session = null) {
+        const sessionId = session?.[cardField];
+        if (sessionId) {
+          const preset = await this.get(sessionId);
+          if (preset) return preset;
+        }
         const id = card?.[cardField] || card?.data?.[dataField];
         if (id) {
           const preset = await this.get(id);
@@ -650,6 +678,15 @@ class LocalStore {
             } catch (_) {
               continue;
             }
+          } else if (k === "vibe_rp_personas" || k === "vibe_rp_directives") {
+            try {
+              const parsed = JSON.parse(v);
+              if (!Array.isArray(parsed) || !parsed.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
+                continue;
+              }
+            } catch (_) {
+              continue;
+            }
           }
           try {
             localStorage.setItem(k, v);
@@ -665,6 +702,7 @@ class LocalStore {
         if (err instanceof LocalDbQuotaError) throw err;
       }
     }
+    if (count > 0) invalidateCapabilitiesCache();
     return count;
   }
 }
@@ -718,7 +756,7 @@ export class LocalDb {
   deletePersona(id) { return this.local.presets(PERSONA_PRESETS).remove(id); }
   getDefaultPersona() { return this.local.presets(PERSONA_PRESETS).getDefault(); }
   setDefaultPersona(id) { return this.local.presets(PERSONA_PRESETS).setDefault(id); }
-  resolvePersonaForCard(card) { return this.local.presets(PERSONA_PRESETS).resolveForCard(card); }
+  resolvePersonaForCard(card, session = null) { return this.local.presets(PERSONA_PRESETS).resolveForCard(card, session); }
 
   getAllDirectives() { return this.local.presets(DIRECTIVE_PRESETS).list(); }
   getDirective(id) { return this.local.presets(DIRECTIVE_PRESETS).get(id); }
@@ -726,7 +764,7 @@ export class LocalDb {
   deleteDirective(id) { return this.local.presets(DIRECTIVE_PRESETS).remove(id); }
   getDefaultDirective() { return this.local.presets(DIRECTIVE_PRESETS).getDefault(); }
   setDefaultDirective(id) { return this.local.presets(DIRECTIVE_PRESETS).setDefault(id); }
-  resolveDirectiveForCard(card) { return this.local.presets(DIRECTIVE_PRESETS).resolveForCard(card); }
+  resolveDirectiveForCard(card, session = null) { return this.local.presets(DIRECTIVE_PRESETS).resolveForCard(card, session); }
 
   getSettings() { return this.local.getSettings(); }
   saveSettings(settings) { return this.local.saveSettings(settings); }
@@ -742,6 +780,18 @@ export class LocalDb {
     this.local.resetPresets(PERSONA_PRESETS);
     this.local.resetPresets(DIRECTIVE_PRESETS);
     this.local.resetSettings();
+    invalidateCapabilitiesCache();
+
+    if (typeof sessionStorage !== "undefined") {
+      try {
+        const ssKeys = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          if (k && k.startsWith(KEY_PREFIX)) ssKeys.push(k);
+        }
+        for (const k of ssKeys) sessionStorage.removeItem(k);
+      } catch (_) {}
+    }
 
     if (resetCache && typeof globalThis.caches !== "undefined") {
       try {
@@ -796,7 +846,7 @@ export class LocalDb {
     };
   }
 
-  async exportAllData({ cookies = [] } = {}) {
+  async exportAllData({ cookies = [], excludeSecrets = false } = {}) {
     const cards = await this.idb.getAllCards();
     const sessions = await this.idb.getAllSessions();
     const localData = this.local.snapshot();
@@ -813,6 +863,25 @@ export class LocalDb {
       } catch (_) {}
     }
 
+    let exportedCookies = Array.isArray(cookies) ? cookies : [];
+    if (excludeSecrets) {
+      exportedCookies = [];
+      delete localData.vibe_rp_import_session;
+      delete localData.vibe_rp_import_session_refresh_lock;
+      if (typeof localData.vibe_rp_settings === "string") {
+        try {
+          const parsed = JSON.parse(localData.vibe_rp_settings);
+          if (parsed && typeof parsed === "object") {
+            if ("apiKey" in parsed) parsed.apiKey = "";
+            if (Array.isArray(parsed.apiProfiles)) {
+              parsed.apiProfiles = parsed.apiProfiles.map((p) => (p && typeof p === "object" ? { ...p, apiKey: "" } : p));
+            }
+            localData.vibe_rp_settings = JSON.stringify(parsed);
+          }
+        } catch (_) {}
+      }
+    }
+
     return {
       format: "vibe-rp-full-backup",
       version: 1,
@@ -824,7 +893,7 @@ export class LocalDb {
         },
         localStorage: localData,
         sessionStorage: sessionData,
-        cookies: Array.isArray(cookies) ? cookies : [],
+        cookies: exportedCookies,
       },
     };
   }
@@ -863,8 +932,9 @@ export class LocalDb {
     }
 
     const { indexedDb: idbData = {}, localStorage: lsData = {}, sessionStorage: ssData = {}, cookies = [] } = payloadData;
-    const cards = Array.isArray(idbData.cards) ? idbData.cards : [];
-    const sessions = Array.isArray(idbData.sessions) ? idbData.sessions : [];
+    const isValidRow = (row) => row && typeof row === "object" && !Array.isArray(row) && typeof row.id === "string" && row.id.length > 0;
+    const cards = (Array.isArray(idbData.cards) ? idbData.cards : []).filter(isValidRow);
+    const sessions = (Array.isArray(idbData.sessions) ? idbData.sessions : []).filter(isValidRow);
 
     await this.idb.importRows({ cards, sessions, mode });
 
@@ -936,7 +1006,7 @@ export class LocalDb {
   static deletePersona(id) { return this.#defaultInstance.local.presets(PERSONA_PRESETS).remove(id); }
   static getDefaultPersona() { return this.#defaultInstance.local.presets(PERSONA_PRESETS).getDefault(); }
   static setDefaultPersona(id) { return this.#defaultInstance.local.presets(PERSONA_PRESETS).setDefault(id); }
-  static resolvePersonaForCard(card) { return this.#defaultInstance.local.presets(PERSONA_PRESETS).resolveForCard(card); }
+  static resolvePersonaForCard(card, session = null) { return this.#defaultInstance.local.presets(PERSONA_PRESETS).resolveForCard(card, session); }
 
   static getAllDirectives() { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).list(); }
   static getDirective(id) { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).get(id); }
@@ -944,7 +1014,7 @@ export class LocalDb {
   static deleteDirective(id) { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).remove(id); }
   static getDefaultDirective() { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).getDefault(); }
   static setDefaultDirective(id) { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).setDefault(id); }
-  static resolveDirectiveForCard(card) { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).resolveForCard(card); }
+  static resolveDirectiveForCard(card, session = null) { return this.#defaultInstance.local.presets(DIRECTIVE_PRESETS).resolveForCard(card, session); }
 
   // --- settings ---
 

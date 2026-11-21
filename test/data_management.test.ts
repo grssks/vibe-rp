@@ -279,15 +279,14 @@ describe("Cookie serialization helpers", () => {
     }
   });
 
-  test("readBrowserCookies parses cookie string into key-value items", () => {
+  test("readBrowserCookies parses vibe_rp_ cookies and ignores unrelated ones", () => {
     (globalThis as any).document = {
-      cookie: "token=abc123xyz; session_id=sess_456; theme=dark",
+      cookie: "vibe_rp_token=abc123xyz; session_id=sess_456; vibe_rp_theme=dark",
     };
     const cookies = readBrowserCookies();
     expect(cookies).toEqual([
-      { name: "token", value: "abc123xyz" },
-      { name: "session_id", value: "sess_456" },
-      { name: "theme", value: "dark" },
+      { name: "vibe_rp_token", value: "abc123xyz" },
+      { name: "vibe_rp_theme", value: "dark" },
     ]);
   });
 
@@ -314,11 +313,11 @@ describe("Cookie serialization helpers", () => {
     expect(setLog[1]).toBe("vibe_rp_tokeninjected=xyzpath=/evil; path=/; max-age=31536000; SameSite=Lax");
   });
 
-  test("clearBrowserCookies expires all existing cookies", () => {
+  test("clearBrowserCookies expires only vibe_rp_ cookies", () => {
     const setLog: string[] = [];
     (globalThis as any).document = {
       get cookie() {
-        return "foo=1; bar=2";
+        return "vibe_rp_foo=1; other=2; vibe_rp_bar=3";
       },
       set cookie(val: string) {
         setLog.push(val);
@@ -327,7 +326,9 @@ describe("Cookie serialization helpers", () => {
 
     clearBrowserCookies();
     expect(setLog.length).toBe(2);
+    expect(setLog[0]).toContain("vibe_rp_foo=");
     expect(setLog[0]).toContain("max-age=0");
+    expect(setLog[1]).toContain("vibe_rp_bar=");
     expect(setLog[1]).toContain("max-age=0");
   });
 });

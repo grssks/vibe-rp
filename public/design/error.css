@@ -1,0 +1,65 @@
+/* 404 / error page styles using only design tokens (CSP style-src 'self'). */
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-5);
+  text-align: center;
+}
+main {
+  max-width: 32rem;
+  width: 100%;
+}
+.mark {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--space-6);
+  display: block;
+  border-radius: var(--radius-lg);
+}
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
+  color: var(--accent-annotation);
+  margin: 0 0 var(--space-3);
+}
+h1 {
+  font-family: var(--font-prose);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-tight);
+  margin: 0 0 var(--space-3);
+  text-wrap: balance;
+}
+p {
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-6);
+  text-wrap: pretty;
+}
+a.return {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  padding: var(--space-2) var(--space-5);
+  border: var(--border-width) solid var(--border-control);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-raised);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+}
+@media (hover: hover) and (pointer: fine) {
+  a.return:hover {
+    border-color: var(--border-strong);
+    background-color: var(--surface-hover);
+  }
+}
+:focus-visible {
+  outline: var(--focus-width) solid var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}

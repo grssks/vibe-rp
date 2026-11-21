@@ -130,6 +130,37 @@ describe("CSP script policy", () => {
     expect(scriptSrc).not.toMatch(/https?:/);
   });
 
+  test("no public HTML file contains an inline <style> or style attribute", () => {
+    const files = htmlFiles(PUBLIC);
+    expect(files.length).toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const file of files) {
+      const html = readFileSync(file, "utf8");
+      if (/<style\b/i.test(html)) offenders.push(`${file.slice(ROOT.length + 1)}: <style>`);
+      if (/\bstyle\s*=/i.test(html)) offenders.push(`${file.slice(ROOT.length + 1)}: style=`);
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  test("style-src is 'self' only and COOP is set in both serve.js and vercel.json", () => {
+    for (const csp of [cspFromServe, cspFromVercel]) {
+      const styleSrc = csp
+        .split(";")
+        .map((d) => d.trim())
+        .find((d) => d.startsWith("style-src")) ?? "";
+      expect(styleSrc).toBe("style-src 'self'");
+      expect(styleSrc).not.toContain("unsafe-inline");
+      expect(styleSrc).not.toContain("unsafe-eval");
+      expect(styleSrc).not.toContain("*");
+    }
+    const serveSrc = readFileSync(join(ROOT, "serve.js"), "utf8");
+    expect(serveSrc).toContain('"Cross-Origin-Opener-Policy": "same-origin"');
+    const coop = vercelHeaders
+      .flatMap((h: { headers: { key: string; value: string }[] }) => h.headers)
+      .find((h: { key: string }) => h.key === "Cross-Origin-Opener-Policy")?.value ?? "";
+    expect(coop).toBe("same-origin");
+  });
+
   test("the policy closes the directives that matter on a document response", () => {
     // These are the directives that bound what a stored injection can reach.
     // A missing one is a silent widening of the policy, so each is asserted

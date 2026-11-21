@@ -74,7 +74,7 @@
 // brief window where a page loaded under the old worker is controlled by the new
 // one. `activate` deletes every other cache version, so no stale shell survives.
 
-const CACHE = "vibe-rp-shell-v26";
+const CACHE = "vibe-rp-shell-v29";
 const GEN_KEY = "./__sw_generation__";
 const PREV_KEY = "./__sw_previous__";
 const PIN_DIR = "/__sw_pin__/";
@@ -182,6 +182,7 @@ function referencesFrom(url, text, contentType) {
       if (!ref || ref.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(ref) || ref.startsWith("//")) continue;
       try {
         const abs = new URL(raw, url);
+        abs.hash = "";
         if (abs.origin === self.location.origin) out.add(abs.href);
       } catch {
         /* unparseable reference: skip */
@@ -227,6 +228,7 @@ async function crawlShell() {
       frontier.map(async (url) => {
         try {
           const res = await fetch(url, { cache: "no-store" });
+          if (res.type === "opaque") throw new Error("Opaque response");
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const contentType = res.headers.get("Content-Type") || "";
           const isDoc = /\.html?$/i.test(new URL(url).pathname);
@@ -272,9 +274,10 @@ async function crawlShell() {
 
   if (failed.length) {
     console.warn(
-      `[sw] generation incomplete — ${failed.length} shell files failed to cache. ` +
-        `Offline mode will be partial for those. Failing entries: ${failed.join(", ")}`,
+      `[sw] generation aborted — ${failed.length} shell files failed to cache. ` +
+        `Keeping existing generation. Failing entries: ${failed.join(", ")}`,
     );
+    return null;
   }
   return entries.length ? { entries } : null;
 }
@@ -488,6 +491,21 @@ self.addEventListener("fetch", (event) => {
     // real route, never a catch-all.
     if (!isAppRoute(url)) {
       event.respondWith(fetch(req).catch(() => Response.error()));
+      return;
+    }
+    const cleanNavPath = url.pathname.replace(/\/+$/, "") || "/";
+    const redirectTarget =
+      cleanNavPath === "/settings"
+        ? "/?openSettings=1"
+        : cleanNavPath === "/directives"
+          ? "/?openSettings=1&tab=settings-system-prompts-tab"
+          : cleanNavPath === "/personas"
+            ? "/?openSettings=1&tab=settings-personas-tab"
+            : null;
+    if (redirectTarget) {
+      event.respondWith(
+        fetch(req).catch(() => new Response(null, { status: 302, headers: { Location: redirectTarget } })),
+      );
       return;
     }
     event.respondWith(

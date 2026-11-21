@@ -189,7 +189,7 @@ function withCrossTabLock(fn, options) {
 async function withStorageLock(fn, options) {
   const storage = getStorage(options);
   if (!storage) return fn();
-  const owner = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const owner = (globalThis.crypto?.randomUUID?.() || (Math.random().toString(36).slice(2) + Date.now().toString(36)));
   const sleep = options?.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const timeout = Number.isFinite(options?.lockTimeoutMs) ? options.lockTimeoutMs : STORAGE_LOCK_TIMEOUT_MS;
   const deadline = Date.now() + timeout;
@@ -250,6 +250,7 @@ async function performRefresh(session, options) {
   const key = options?.apiKey || PUBLIC_CLIENT_KEY;
 
   let res;
+  const signal = options?.signal || (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(15000) : undefined);
   try {
     res = await fetchFn(`${base}/token?grant_type=refresh_token`, {
       method: "POST",
@@ -259,6 +260,7 @@ async function performRefresh(session, options) {
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      ...(signal ? { signal } : {}),
     });
   } catch {
     // Ambiguous network/CORS failure. Do not retry with the same token here:
@@ -345,6 +347,7 @@ export function installProactiveRefresh(options = {}) {
   }
   const stop = () => {
     if (timer != null && typeof clearI === "function") clearI(timer);
+    timer = null;
   };
   return { stop, tick };
 }
