@@ -289,6 +289,33 @@ describe("Choice Mode inline prose, Edit & idle Generate", () => {
     expect(edited?.id).toBe("c1");
     click(choiceBtn as unknown as Parameters<typeof click>[0]);
     expect(selected).toBe(1);
+
+    // Inline "Hold to edit" hint is first in .rp-choices__actions and visible when ready
+    const actionsRow = mount.querySelector(".rp-choices__actions") as unknown as {
+      children: Array<{ className?: string; textContent?: string; hidden?: boolean }>;
+    };
+    const hint = mount.querySelector(".rp-choices__hint") as unknown as {
+      textContent?: string;
+      hidden?: boolean;
+    };
+    expect(hint?.textContent).toBe("Hold to edit");
+    expect(hint?.hidden).toBe(false);
+    expect(actionsRow.children[0]).toBe(hint as unknown as { className?: string });
+
+    // Per-card "More" / "Less" toggle expands/collapses without submitting
+    const more = mount.querySelector(".rp-choices__more") as unknown as Parameters<typeof click>[0] & {
+      textContent: string;
+    };
+    expect(more).not.toBeNull();
+    expect(more.textContent).toBe("More");
+    click(more);
+    expect(choiceBtn.classList.contains("is-expanded")).toBe(true);
+    expect(more.textContent).toBe("Less");
+    expect(selected).toBe(1);
+    click(more);
+    expect(choiceBtn.classList.contains("is-expanded")).toBe(false);
+    expect(more.textContent).toBe("More");
+    expect(selected).toBe(1);
   });
 });
 
