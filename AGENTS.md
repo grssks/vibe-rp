@@ -79,7 +79,7 @@ Top-level logic (all zero DOM unless noted):
 - **`public/card_parse.js`** (523 lines): character-card parsing and export (`stripJsonComments`, `normalizeCard`, PNG/WebP `chara` extraction, `serializeCardV2`, and `buildPngWithChara` with IEEE 802.3 CRC32).
 - **`public/remote_import.js`** (296 lines): URL import, character-page API mapping, direct card-file fetch.
 - **`public/session_refresh.js`** (370 lines): refresh-token exchange, single-flight, proactive refresh. Owns the allowlisted auth destination.
-- **`public/sw.js`** (562 lines): offline shell cache (`CACHE = "vibe-rp-shell-v31"`). Never caches cross-origin or non-GET requests, and replays the origin's own policy headers.
+- **`public/sw.js`** (562 lines): offline shell cache (`CACHE = "vibe-rp-shell-v32"`). Never caches cross-origin or non-GET requests, and replays the origin's own policy headers.
 
 Page shells (markup plus a thin bootstrap only):
 

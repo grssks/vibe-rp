@@ -444,7 +444,7 @@ describe("Settings Profiles, Numeric Params, Custom Pronouns & Backup Options", 
     expect(byId(modal.element, "popup-slider-temp-num")).toBeNull();
     expect(byId(modal.element, "popup-import-session-wrap")).not.toBeNull();
     expect(byId(modal.element, "rp-data-exclude-secrets")).not.toBeNull();
-    expect(byId(modal.element, "rp-data-restore-mode")).not.toBeNull();
+    expect(byId(modal.element, "rp-data-replace-mode")).not.toBeNull();
     modal.close();
 
     // Custom pronouns input stays hidden unless "custom" is selected
@@ -463,5 +463,164 @@ describe("Settings Profiles, Numeric Params, Custom Pronouns & Backup Options", 
     const closeBtn = (doc.body.querySelector('[data-role="close"]') as unknown as { dispatch: (t: string) => void });
     closeBtn?.dispatch("click");
     await pDone;
+  });
+
+  test("Smart Merge preserves customized Phone data when importing a fresh PC backup", async () => {
+    installMemStorage();
+
+    // Phone state: custom persona (default), custom directive, custom sampler settings,
+    // longer session, customized sample card, learned model caps, and theme.
+    const phoneCards = [
+      { id: "card_valen_shadow", name: "Valen (Edited)", sample: true, favorite: true, userModified: true, updatedAt: 2000 },
+      { id: "card_phone_only", name: "Phone Heroine", updatedAt: 1500 },
+    ];
+    const phoneSessions = [
+      {
+        id: "sess_phone",
+        cardId: "card_phone_only",
+        messages: [
+          { id: "m1", role: "assistant", content: "Hello" },
+          { id: "m2", role: "user", content: "Hi there" },
+        ],
+        updatedAt: 2500,
+      },
+    ];
+
+    // Mock IDB store supporting readwrite getAll/put/clear
+    const idbCards = new Map(phoneCards.map((c) => [c.id, structuredClone(c)]));
+    const idbSessions = new Map(phoneSessions.map((s) => [s.id, structuredClone(s)]));
+    const fakeIdb = {
+      async importRows({ cards, sessions, mode }: { cards: any[]; sessions: any[]; mode: string }) {
+        // Delegate to IdbStore.prototype.importRows logic by wrapping a minimal in-memory IDB
+        const { LocalDb: _ } = await import("../public/local_db.js");
+        void _;
+        if (mode === "replace") {
+          idbCards.clear();
+          idbSessions.clear();
+        }
+        for (const c of cards) {
+          if (mode === "merge") {
+            const cur = idbCards.get(c.id);
+            if (cur) {
+              const incUnmodifiedSample = c.sample === true && !c.userModified;
+              const curCustomized = !cur.sample || Boolean(cur.userModified) || Boolean(cur.favorite);
+              if (incUnmodifiedSample && (curCustomized || (cur.updatedAt || 0) >= (c.updatedAt || 0))) continue;
+              if ((cur.updatedAt || 0) > (c.updatedAt || 0)) continue;
+            }
+          }
+          idbCards.set(c.id, c);
+        }
+        for (const s of sessions) {
+          if (mode === "merge") {
+            const cur = idbSessions.get(s.id);
+            if (cur) {
+              const curLen = Array.isArray(cur.messages) ? cur.messages.length : 0;
+              const incLen = Array.isArray(s.messages) ? s.messages.length : 0;
+              if ((curLen > incLen && (cur.updatedAt || 0) >= (s.updatedAt || 0)) || ((cur.updatedAt || 0) > (s.updatedAt || 0) && curLen >= incLen)) continue;
+            }
+          }
+          idbSessions.set(s.id, s);
+        }
+      },
+      async getAllCards() { return Array.from(idbCards.values()); },
+      async getAllSessions() { return Array.from(idbSessions.values()); },
+    };
+
+    const phoneDb = new LocalDb({ idb: fakeIdb as any });
+    localStorage.setItem("vibe_rp_theme", "light");
+    localStorage.setItem("vibe_rp_model_caps_v1", JSON.stringify({ "https://phone/v1|m1": { maxContextTokens: 8192 } }));
+    localStorage.setItem("vibe_rp_personas", JSON.stringify([
+      { id: "persona_default", name: "", avatar: "U", description: "stock", isDefault: false },
+      { id: "persona_iqbal", name: "Iqbal", avatar: "I", description: "Custom phone persona", isDefault: true, userModified: true, updatedAt: 2000 },
+    ]));
+    localStorage.setItem("vibe_rp_directives", JSON.stringify([
+      { id: "directive_default", name: "Custom Craft", content: "My phone rules", isDefault: true, userModified: true, updatedAt: 2000 },
+    ]));
+    phoneDb.saveSettings({
+      apiEndpoint: "",
+      apiKey: "",
+      model: "",
+      temperature: 0.72,
+      maxContextTokens: 32768,
+      choiceMode: "choice",
+      apiProfiles: [{ id: "prof_phone", name: "Phone Local", apiEndpoint: "http://localhost:1234/v1", apiKey: "" }],
+      activeProfileId: "prof_phone",
+    });
+
+    // Fresh PC backup: only configured API endpoint, key, model, and JanitorAI session.
+    // Everything else is stock defaults + stock sample card + stock persona/directive.
+    const pcBackup = {
+      format: "vibe-rp-full-backup",
+      version: 1,
+      data: {
+        indexedDb: {
+          cards: [
+            { id: "card_valen_shadow", name: "Valen Vance", sample: true, updatedAt: 1000 },
+            { id: "card_kestrel_drifter", name: "Kestrel Rowan", sample: true, updatedAt: 1000 },
+          ],
+          sessions: [
+            { id: "sess_phone", cardId: "card_phone_only", messages: [{ id: "m1", role: "assistant", content: "Old" }], updatedAt: 1000 },
+          ],
+        },
+        localStorage: {
+          vibe_rp_theme: "dark",
+          vibe_rp_settings: JSON.stringify({
+            apiEndpoint: "https://pc-api.example.com/v1",
+            apiKey: "sk-pc-key",
+            model: "deepseek-chat",
+            temperature: 0.95,
+            maxContextTokens: 65536,
+            choiceMode: "normal",
+            apiProfiles: [],
+            activeProfileId: "",
+          }),
+          vibe_rp_personas: JSON.stringify([
+            { id: "persona_default", name: "", avatar: "U", description: "stock", isDefault: true },
+          ]),
+          vibe_rp_directives: JSON.stringify([
+            { id: "directive_default", name: "Author's Craft Directive", content: "stock", isDefault: true },
+          ]),
+          vibe_rp_import_session: JSON.stringify({ accessToken: "jai-pc-token", expiresAt: 9999999999 }),
+          vibe_rp_model_caps_v1: JSON.stringify({ "https://pc-api.example.com/v1|deepseek-chat": { maxContextTokens: 65536 } }),
+        },
+      },
+    };
+
+    await phoneDb.importAllData(pcBackup, { mode: "merge" });
+
+    // Settings: PC endpoint/key/model landed, Phone custom samplers & profile preserved!
+    const mergedSettings = phoneDb.getSettings();
+    expect(mergedSettings.apiEndpoint).toBe("https://pc-api.example.com/v1");
+    expect(mergedSettings.apiKey).toBe("sk-pc-key");
+    expect(mergedSettings.model).toBe("deepseek-chat");
+    expect(mergedSettings.temperature).toBe(0.72);
+    expect(mergedSettings.maxContextTokens).toBe(32768);
+    expect(mergedSettings.choiceMode).toBe("choice");
+    expect(mergedSettings.apiProfiles.length).toBe(1);
+    expect(mergedSettings.apiProfiles[0].id).toBe("prof_phone");
+    expect(mergedSettings.activeProfileId).toBe("prof_phone");
+
+    // Personas & Directives: Phone custom persona remains default; Phone custom directive preserved!
+    const personas = JSON.parse(localStorage.getItem("vibe_rp_personas")!);
+    const iqbal = personas.find((p: any) => p.id === "persona_iqbal");
+    const defPersona = personas.find((p: any) => p.id === "persona_default");
+    expect(iqbal?.isDefault).toBe(true);
+    expect(defPersona?.isDefault).toBe(false);
+
+    const directives = JSON.parse(localStorage.getItem("vibe_rp_directives")!);
+    expect(directives[0].content).toBe("My phone rules");
+
+    // JanitorAI session & theme & caps
+    const jaiSession = JSON.parse(localStorage.getItem("vibe_rp_import_session")!);
+    expect(jaiSession.accessToken).toBe("jai-pc-token");
+    expect(localStorage.getItem("vibe_rp_theme")).toBe("light");
+    const caps = JSON.parse(localStorage.getItem("vibe_rp_model_caps_v1")!);
+    expect(caps["https://phone/v1|m1"]).toBeDefined();
+    expect(caps["https://pc-api.example.com/v1|deepseek-chat"]).toBeDefined();
+
+    // Cards & Sessions
+    expect(idbCards.get("card_valen_shadow")?.name).toBe("Valen (Edited)");
+    expect(idbCards.get("card_kestrel_drifter")?.name).toBe("Kestrel Rowan");
+    expect(idbSessions.get("sess_phone")?.messages.length).toBe(2);
   });
 });

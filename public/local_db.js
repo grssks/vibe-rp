@@ -192,6 +192,134 @@ function isValidSettingsObject(obj) {
   return true;
 }
 
+function isStockPersona(p) {
+  if (!p || typeof p !== "object") return false;
+  if (p.id !== "persona_default" && p.id !== "default_persona") return false;
+  if (p.userModified) return false;
+  if (p.name || p.template || p.gender || p.pronouns) return false;
+  if (p.avatar && p.avatar !== "U") return false;
+  return true;
+}
+
+function isStockDirective(d) {
+  if (!d || typeof d !== "object") return false;
+  if (d.id !== "directive_default" && d.id !== "default_directive") return false;
+  if (d.userModified) return false;
+  if (d.name && d.name !== "Author's Craft Directive") return false;
+  return true;
+}
+
+function presetMergeKey(item) {
+  if (!item || typeof item !== "object") return "";
+  if (item.id === "default_persona" || item.id === "persona_default") return "persona_default";
+  if (item.id === "default_directive" || item.id === "directive_default") return "directive_default";
+  return typeof item.id === "string" ? item.id : "";
+}
+
+function mergePresetLists(existingList, incomingList, isStockFn) {
+  const merged = existingList.map((item) => ({ ...item }));
+  const existingDefault = existingList.find((item) => item?.isDefault);
+  const existingHasNonStockDefault = Boolean(existingDefault && !isStockFn(existingDefault));
+  const incomingDefault = incomingList.find((item) => item?.isDefault);
+  const incomingDefaultIsStock = !incomingDefault || isStockFn(incomingDefault);
+
+  for (const rawInc of incomingList) {
+    if (!rawInc || typeof rawInc !== "object" || Array.isArray(rawInc)) continue;
+    const inc = { ...rawInc };
+    const incKey = presetMergeKey(inc);
+    const idx = incKey ? merged.findIndex((item) => presetMergeKey(item) === incKey) : -1;
+    if (idx < 0) {
+      merged.push(inc);
+      continue;
+    }
+    const cur = merged[idx];
+    const curStock = isStockFn(cur);
+    const incStock = isStockFn(inc);
+    if (incStock && !curStock) continue;
+    if (!incStock && curStock) {
+      merged[idx] = inc;
+      continue;
+    }
+    if ((cur.updatedAt || 0) > (inc.updatedAt || 0)) continue;
+    merged[idx] = inc;
+  }
+
+  if (merged.length > 0) {
+    const keepExistingDefaultId = existingHasNonStockDefault && incomingDefaultIsStock ? existingDefault.id : null;
+    if (keepExistingDefaultId) {
+      for (const item of merged) item.isDefault = item.id === keepExistingDefaultId;
+    } else {
+      let seenDefault = false;
+      for (const item of merged) {
+        if (item.isDefault && !seenDefault) {
+          seenDefault = true;
+        } else {
+          item.isDefault = false;
+        }
+      }
+      if (!seenDefault) merged[0].isDefault = true;
+    }
+  }
+  return merged;
+}
+
+function mergeSettingsObjects(existing, incoming) {
+  const merged = { ...existing };
+  const existingProfiles = Array.isArray(existing.apiProfiles) ? existing.apiProfiles : [];
+  const incomingProfiles = Array.isArray(incoming.apiProfiles) ? incoming.apiProfiles : [];
+
+  for (const [k, incVal] of Object.entries(incoming)) {
+    if (k === "apiProfiles") {
+      if (incomingProfiles.length === 0 && existingProfiles.length > 0) continue;
+      const byId = new Map();
+      for (const p of existingProfiles) {
+        if (p && typeof p === "object" && p.id) byId.set(p.id, { ...p });
+      }
+      for (const p of incomingProfiles) {
+        if (p && typeof p === "object" && p.id) {
+          byId.set(p.id, { ...(byId.get(p.id) || {}), ...p });
+        }
+      }
+      merged.apiProfiles = Array.from(byId.values());
+      continue;
+    }
+    if (k === "availableModels") {
+      if ((!Array.isArray(incVal) || incVal.length === 0) && Array.isArray(existing.availableModels) && existing.availableModels.length > 0) {
+        continue;
+      }
+      merged.availableModels = incVal;
+      continue;
+    }
+    if (k === "activeProfileId") {
+      if (!incVal && existing.activeProfileId) continue;
+      merged.activeProfileId = incVal;
+      continue;
+    }
+    const curVal = existing[k];
+    const defVal = DEFAULT_SETTINGS[k];
+    const incIsEmptyOrDefault = incVal === undefined || incVal === null || incVal === "" || incVal === defVal;
+    const curIsCustom = curVal !== undefined && curVal !== null && curVal !== "" && curVal !== defVal;
+    if (incIsEmptyOrDefault && curIsCustom) continue;
+    merged[k] = incVal;
+  }
+  return merged;
+}
+
+function mergeImportSessionJson(existingRaw, incomingRaw) {
+  let existing = null;
+  let incoming = null;
+  try { existing = JSON.parse(existingRaw); } catch (_) {}
+  try { incoming = JSON.parse(incomingRaw); } catch (_) {}
+  const existingToken = existing && typeof existing === "object" && typeof existing.accessToken === "string" ? existing.accessToken : "";
+  const incomingToken = incoming && typeof incoming === "object" && typeof incoming.accessToken === "string" ? incoming.accessToken : "";
+  if (existingToken && !incomingToken) return existingRaw;
+  if (!existingToken) return incomingRaw;
+  const existingExp = Number(existing.expiresAt) || 0;
+  const incomingExp = Number(incoming.expiresAt) || 0;
+  if (existingExp > incomingExp) return existingRaw;
+  return incomingRaw;
+}
+
 
 // Generic presets store (personas and directives; sync via localStorage).
 // The card→preset resolution rule (card root, then card.data, then default)
@@ -468,13 +596,63 @@ class IdbStore {
       if (mode === "replace") {
         cardStore.clear();
         sessionStore.clear();
-      }
+        for (const card of cards) {
+          if (card && card.id) cardStore.put(card);
+        }
+        for (const session of sessions) {
+          if (session && session.id) sessionStore.put(session);
+        }
+      } else {
+        const cardsReq = cardStore.getAll();
+        const sessionsReq = sessionStore.getAll();
+        let curCards = null;
+        let curSessions = null;
 
-      for (const card of cards) {
-        if (card && card.id) cardStore.put(card);
-      }
-      for (const session of sessions) {
-        if (session && session.id) sessionStore.put(session);
+        const applyMerge = () => {
+          if (curCards === null || curSessions === null) return;
+          const existingCards = new Map(curCards.map((c) => [c.id, c]));
+          const existingSessions = new Map(curSessions.map((s) => [s.id, s]));
+
+          for (const card of cards) {
+            if (!card || !card.id) continue;
+            const cur = existingCards.get(card.id);
+            if (cur) {
+              const incIsUnmodifiedSample = card.sample === true && !card.userModified;
+              const curIsCustomized = !cur.sample || Boolean(cur.userModified) || Boolean(cur.favorite);
+              if (incIsUnmodifiedSample && (curIsCustomized || (cur.updatedAt || 0) >= (card.updatedAt || 0))) {
+                continue;
+              }
+              if ((cur.updatedAt || 0) > (card.updatedAt || 0)) {
+                continue;
+              }
+            }
+            cardStore.put(card);
+          }
+
+          for (const session of sessions) {
+            if (!session || !session.id) continue;
+            const cur = existingSessions.get(session.id);
+            if (cur) {
+              const curLen = Array.isArray(cur.messages) ? cur.messages.length : 0;
+              const incLen = Array.isArray(session.messages) ? session.messages.length : 0;
+              const curUpdated = cur.updatedAt || 0;
+              const incUpdated = session.updatedAt || 0;
+              if ((curLen > incLen && curUpdated >= incUpdated) || (curUpdated > incUpdated && curLen >= incLen)) {
+                continue;
+              }
+            }
+            sessionStore.put(session);
+          }
+        };
+
+        cardsReq.onsuccess = () => {
+          curCards = Array.isArray(cardsReq.result) ? cardsReq.result : [];
+          applyMerge();
+        };
+        sessionsReq.onsuccess = () => {
+          curSessions = Array.isArray(sessionsReq.result) ? sessionsReq.result : [];
+          applyMerge();
+        };
       }
 
       tx.oncomplete = () => resolve();
@@ -664,17 +842,30 @@ class LocalStore {
    * and preset lists, and re-validating their shapes here would duplicate rules
    * the readers of those keys already own. The key set is the boundary.
    */
-  restore(map) {
+  restore(map, { mode = "merge" } = {}) {
     let count = 0;
     if (map && typeof map === "object") {
       try {
         for (const [k, v] of Object.entries(map)) {
           if (typeof k !== "string" || !k.startsWith(KEY_PREFIX)) continue;
           if (typeof v !== "string") continue;
+          let valueToWrite = v;
+
           if (k === "vibe_rp_settings") {
             try {
               const parsed = JSON.parse(v);
               if (!isValidSettingsObject(parsed)) continue;
+              if (mode === "merge") {
+                const curRaw = localStorage.getItem(k);
+                if (curRaw) {
+                  try {
+                    const curParsed = JSON.parse(curRaw);
+                    if (isValidSettingsObject(curParsed)) {
+                      valueToWrite = JSON.stringify(mergeSettingsObjects(curParsed, parsed));
+                    }
+                  } catch (_) {}
+                }
+              }
             } catch (_) {
               continue;
             }
@@ -684,12 +875,46 @@ class LocalStore {
               if (!Array.isArray(parsed) || !parsed.every((x) => x && typeof x === "object" && !Array.isArray(x))) {
                 continue;
               }
+              if (mode === "merge") {
+                const curRaw = localStorage.getItem(k);
+                if (curRaw) {
+                  try {
+                    const curParsed = JSON.parse(curRaw);
+                    if (Array.isArray(curParsed) && curParsed.length > 0) {
+                      const isStockFn = k === "vibe_rp_personas" ? isStockPersona : isStockDirective;
+                      valueToWrite = JSON.stringify(mergePresetLists(curParsed, parsed, isStockFn));
+                    }
+                  } catch (_) {}
+                }
+              }
             } catch (_) {
               continue;
             }
+          } else if (k === "vibe_rp_model_caps_v1" && mode === "merge") {
+            const curRaw = localStorage.getItem(k);
+            if (curRaw) {
+              try {
+                const curParsed = JSON.parse(curRaw);
+                const incParsed = JSON.parse(v);
+                if (curParsed && typeof curParsed === "object" && !Array.isArray(curParsed) && incParsed && typeof incParsed === "object" && !Array.isArray(incParsed)) {
+                  valueToWrite = JSON.stringify({ ...curParsed, ...incParsed });
+                }
+              } catch (_) {}
+            }
+          } else if (k === "vibe_rp_import_session" && mode === "merge") {
+            const curRaw = localStorage.getItem(k);
+            if (curRaw) {
+              valueToWrite = mergeImportSessionJson(curRaw, v);
+            }
+          } else if (mode === "merge" && (k === "vibe_rp_theme" || k.startsWith("vibe_rp_draft_"))) {
+            const curRaw = localStorage.getItem(k);
+            if (curRaw) {
+              valueToWrite = curRaw;
+            }
           }
+
           try {
-            localStorage.setItem(k, v);
+            localStorage.setItem(k, valueToWrite);
             count++;
           } catch (err) {
             if (isStorageQuotaError(err)) {
@@ -940,7 +1165,7 @@ export class LocalDb {
 
     if (mode === "replace") this.local.clearAll();
 
-    const lsCount = this.local.restore(lsData);
+    const lsCount = this.local.restore(lsData, { mode });
 
     if (ssData && typeof ssData === "object" && typeof sessionStorage !== "undefined") {
       try {

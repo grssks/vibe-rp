@@ -145,29 +145,46 @@ export function mountDataPanel(root, options = {}) {
 
   const excludeSecretsRow = el("label", { class: "rp-settings__check", attrs: { for: "rp-data-exclude-secrets" } }, [
     excludeSecretsCheckbox,
-    el("span", { text: "Exclude API keys and session tokens from exported backup" }),
+    el("span", {}, [
+      el("span", { class: "rp-settings__check-title", text: "Exclude API keys and session tokens from exported backup" }),
+      el("span", {
+        class: "rp-hint",
+        text: "Leave unchecked when moving your full setup (including API keys and JanitorAI session) to another device.",
+      }),
+    ]),
   ]);
 
-  const restoreModeSelect = el("select", {
-    id: "rp-data-restore-mode",
-    class: "rp-select rp-select--inline",
-    attrs: { "aria-label": "Backup restore mode" },
-  }, [
-    el("option", { value: "merge", text: "Import mode: Merge with existing" }),
-    el("option", { value: "replace", text: "Import mode: Replace all data" }),
+  const replaceModeCheckbox = el("input", {
+    type: "checkbox",
+    id: "rp-data-replace-mode",
+  });
+
+  const replaceModeRow = el("label", { class: "rp-settings__check", attrs: { for: "rp-data-replace-mode" } }, [
+    replaceModeCheckbox,
+    el("span", {}, [
+      el("span", { class: "rp-settings__check-title", text: "Replace all existing data on import (wipe before restore)" }),
+      el("span", {
+        class: "rp-hint",
+        text: "When unchecked (default), importing smartly merges your backup and preserves existing chats, custom personas, and non-default settings.",
+      }),
+    ]),
+  ]);
+
+  const backupOptionsBox = el("div", { class: "rp-panel rp-settings__check-box" }, [
+    excludeSecretsRow,
+    replaceModeRow,
   ]);
 
   const backupActions = el("div", { class: "rp-actions-row" }, [
     exportBtn,
     importBtn,
-    restoreModeSelect,
     importInput,
   ]);
 
   const backupSection = el("div", { class: "rp-field" }, [
     el("span", { class: "rp-label", text: "Backup and restore" }),
     backupNotice,
-    excludeSecretsRow,
+    backupOptionsBox,
     backupActions,
   ]);
 
@@ -300,21 +317,18 @@ export function mountDataPanel(root, options = {}) {
         if (payload.format === "vibe-rp-full-backup") {
           const cardsCount = payload.data?.indexedDb?.cards?.length || 0;
           const sessionsCount = payload.data?.indexedDb?.sessions?.length || 0;
-          const restoreMode = restoreModeSelect.value === "replace" ? "replace" : "merge";
+          const restoreMode = replaceModeCheckbox.checked ? "replace" : "merge";
 
           const ok = await confirm({
             title: "Restore full backup?",
             body:
               restoreMode === "replace"
                 ? `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. All existing browser data will be replaced.`
-                : `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. Existing matching items will be updated.`,
+                : `Backup contains ${cardsCount} cards and ${sessionsCount} conversations. Your existing chats, custom personas, and non-default settings will be preserved.`,
             confirmLabel: restoreMode === "replace" ? "Replace and restore" : "Merge and restore",
           });
           if (!ok) return;
 
-          if (restoreMode === "replace") {
-            await LocalDb.clearAll();
-          }
           const result = await LocalDb.importAllData(payload, { mode: restoreMode });
           if (Array.isArray(result.cookies) && result.cookies.length) {
             restoreBrowserCookies(result.cookies);
