@@ -34,10 +34,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-  BrowserChatEngine, estimateTokens,
+  BrowserChatEngine, estimateTokens, buildSystemSections, LEDGER_OPEN,
   SUMMARY_PROMPT, SUMMARY_UPDATE_PROMPT, SUMMARY_SYSTEM_PROMPT, LEDGER_COMPRESS_PROMPT,
 } from "../public/browser_engine.js";
-import { DEFAULT_SETTINGS, DEFAULT_AGENTS_CONTRACT, DEFAULT_AGENTS_CONTRACT_ID } from "../public/local_db.js";
+import {
+  DEFAULT_SETTINGS, DEFAULT_AGENTS_CONTRACT, DEFAULT_AGENTS_CONTRACT_ID,
+  COMPACT_AGENTS_CONTRACT, PERSONA_PRESETS,
+} from "../public/local_db.js";
 import { CHOICE_SYSTEM_PROMPT, CHOICE_DELIBERATION_HINT, choicePrompt } from "../public/choice_format.js";
 import { PROSE_TICS, SLOP_LEXICON, SLOP_CLUSTER_THRESHOLD, detectNarration, buildSceneGuidance } from "../public/prompt_adaptive.js";
 
@@ -49,11 +52,10 @@ const opt = (name, fallback = null) => {
   return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : fallback;
 };
 
-const filler = (n) => ("The cartographer traced the dead city's spine. ".repeat(Math.ceil(n / 10) + 1)).slice(0, n * 6);
+const FILLER_UNIT = "The cartographer traced the dead city's spine. ";
+const filler = (n) => FILLER_UNIT.repeat(Math.ceil((n * 6) / FILLER_UNIT.length) + 1).slice(0, n * 6);
 
-// The built-in persona, read from the app rather than retyped here: a change to
-// the default must show up in this harness without an edit. The store seeds
-// from its factory, so the factory is the source of truth.
+// The built-in persona, read directly from PERSONA_PRESETS so edits show up here without drift.
 const DEFAULT_PERSONA_RESOLVED = (() => {
   const raw = globalThis.localStorage?.getItem("vibe_rp_personas");
   if (raw) {
@@ -63,12 +65,7 @@ const DEFAULT_PERSONA_RESOLVED = (() => {
       if (found?.description) return found.description;
     } catch {}
   }
-  // No localStorage in this process: fall back to the shipped default text.
-  return (
-    "The viewpoint protagonist: the reader's own character, present in the scene and " +
-    "perceiving it from their own narrative distance. Match the point of view, pronouns, " +
-    "language, and register established in the reader's turns, custom persona, and the scene."
-  );
+  return PERSONA_PRESETS.defaultFactory().description;
 })();
 
 // ───────────────────────── scenarios ─────────────────────────
@@ -138,9 +135,8 @@ const SCENARIOS = [
   { name: "rp/short-replies", card: card({ preset: 400 }), session: session({ turns: 6, reply: "short" }), persona: PERSONA },
   { name: "rp/uniform-blocks", card: card({ preset: 400 }), session: session({ turns: 6, reply: "uniform" }), persona: PERSONA },
   { name: "rp/window-8192", card: card({ preset: 400 }), session: session({ turns: 6 }), persona: PERSONA, window: 8192 },
+  { name: "rp/window-4096", card: card({ preset: 400 }), session: session({ turns: 6 }), persona: PERSONA, window: 4096 },
   { name: "rp/window-2048", card: card({ preset: 400 }), session: session({ turns: 6 }), persona: PERSONA, window: 2048 },
-  // Universal contract scenario: adapts inherently across all languages and registers.
-  { name: "rp/universal-contract", card: card({ preset: 400 }), session: session({ turns: 5 }), persona: PERSONA },
   // Multilingual scenario fixtures: validates non-English token estimation and script-agnostic framing.
   {
     name: "rp/id-conversational",
@@ -346,7 +342,7 @@ const GUIDANCE_FRAMING_FIXTURE = buildSceneGuidance(
     slopHits: SLOP_CLUSTER_THRESHOLD,
     absentCast: ["Marek", "Idris"],
     narration: { pov: "third", tense: "past" },
-    tics: PROSE_TICS.map((t) => ({ id: t.id, priority: t.priority, note: t.note })),
+    tics: PROSE_TICS.map((t) => ({ id: t.id, priority: t.priority, keep: t.keep ?? t.priority, note: t.note })),
     playerWords: 90,
     medianReplyWords: 40,
     latestReplyWords: 40,
@@ -355,17 +351,40 @@ const GUIDANCE_FRAMING_FIXTURE = buildSceneGuidance(
     playerTurns: 6,
     latinScript: true,
   },
-  { identity: "a guarded archivist" }
+  { identity: "a guarded archivist", maxTokens: 4000 }
 ).text;
+
+const ENGINE_SECTION_FIXTURES = buildSystemSections(
+  card({ preset: 200, examples: true, lore: true, roster: true }),
+  PERSONA,
+  { agentsContract: DEFAULT_AGENTS_CONTRACT }
+);
+const engineSectionText = (id) => ENGINE_SECTION_FIXTURES.find((s) => s.id === id)?.text || "";
+const CHOICE_STEER_FIXTURE = (() => {
+  const p = BrowserChatEngine.planChoiceRequest({
+    card: card({ preset: 200 }),
+    session: session({ turns: 2 }),
+    settings: settingsFor({}),
+    persona: PERSONA,
+    intent: CHOICE_INTENT_FIXTURE,
+  });
+  const last = p.payload[p.payload.length - 1]?.content || "";
+  const idx = last.indexOf("Player Steering Focus:");
+  return idx >= 0 ? last.slice(idx) : "";
+})();
 
 const FRAMING_TARGETS = [
   { id: "agentsContract", text: DEFAULT_AGENTS_CONTRACT },
+  { id: "compactContract", text: COMPACT_AGENTS_CONTRACT },
   { id: "choiceSystem", text: CHOICE_SYSTEM_PROMPT },
   { id: "choiceDeliberationHint", text: CHOICE_DELIBERATION_HINT },
-  // The task line is assembled per request, and its freshness branch only
-  // appears once previous choices exist — so the fixture supplies them. Left out
-  // of this gate, that branch carried a "Do NOT" prohibition that no check read.
   { id: "choiceTask", text: choicePrompt(4, { charName: "Elena Voss", playerName: "Rowan", previousChoices: [{ label: "Wait", text: "I wait by the door." }] }) },
+  { id: "choiceSteerTail", text: CHOICE_STEER_FIXTURE },
+  { id: "cardReading", text: engineSectionText("cardReading") },
+  { id: "epistemicBoundary", text: engineSectionText("epistemicBoundary") },
+  { id: "voiceDifferentiation", text: engineSectionText("voiceDifferentiation") },
+  { id: "castRoster", text: engineSectionText("castRoster") },
+  { id: "ledgerOpen", text: LEDGER_OPEN },
   { id: "summary", text: SUMMARY_PROMPT },
   { id: "summaryUpdate", text: SUMMARY_UPDATE_PROMPT },
   { id: "summarySystem", text: SUMMARY_SYSTEM_PROMPT },
@@ -396,6 +415,7 @@ function structural() {
       .map((c) => ({ id: c.id, count: (payloadText.match(c.re) || []).length, expect: c.expect }))
       .filter((c) => c.count !== c.expect)
       .map((c) => ({ id: c.id, count: c.count, expect: c.expect }));
+    const usedContractTokens = plan.contractTokens ?? (plan.includedSections.includes("contract") ? estimateTokens(contractFor(s)) : 0);
     rows.push({
       scenario: s.name,
       inputTokens: plan.inputTokens,
@@ -406,8 +426,8 @@ function structural() {
       // Per-slot attribution of the stable prefix. The three identity slots are
       // reported apart because the point of the layer split is which slot a
       // rule lives in, and a combined total cannot show a rule migrating.
-      contractTokens: plan.includedSections.includes("contract") ? estimateTokens(contractFor(s)) : 0,
-      characterTokens: plan.breakdown.requiredStatic - (plan.includedSections.includes("contract") ? estimateTokens(contractFor(s)) : 0),
+      contractTokens: usedContractTokens,
+      characterTokens: plan.breakdown.requiredStatic - usedContractTokens,
       personaSlotTokens: plan.breakdown.persona,
       instructionDensity: instructionDensity(instructionText),
       sections: plan.includedSections,
@@ -440,10 +460,19 @@ function structural() {
     .map((c) => ({ id: c.id, count: c.count, expect: c.expect }));
 
   // Contract-level checks: which layer a rule lives in is a property of the
-  // authored text, not of any one assembled payload.
-  const contractChecks = CONTRACT_SINGLE_DEFINITION
-    .map((c) => ({ id: c.id, count: (DEFAULT_AGENTS_CONTRACT.match(c.re) || []).length, expect: c.expect }))
-    .filter((c) => c.count !== c.expect);
+  // authored text, not of any one assembled payload. Checked on both full and compact tiers.
+  const contractChecks = [
+    ...CONTRACT_SINGLE_DEFINITION.map((c) => ({
+      id: c.id,
+      count: (DEFAULT_AGENTS_CONTRACT.match(c.re) || []).length,
+      expect: c.expect,
+    })),
+    ...CONTRACT_SINGLE_DEFINITION.map((c) => ({
+      id: `compact:${c.id}`,
+      count: (COMPACT_AGENTS_CONTRACT.match(c.re) || []).length,
+      expect: c.expect,
+    })),
+  ].filter((c) => c.count !== c.expect);
   const parityGaps = checkBilingualParity();
   // "State instructions positively" is a convention, and a convention nobody
   // asserts is a habit. The craft contract already carries zero negative and
@@ -457,6 +486,7 @@ function structural() {
 
   const prompts = {
     agentsContract: instructionDensity(DEFAULT_AGENTS_CONTRACT),
+    compactContract: instructionDensity(COMPACT_AGENTS_CONTRACT),
     choiceSystem: instructionDensity(CHOICE_SYSTEM_PROMPT),
     summary: instructionDensity(SUMMARY_PROMPT),
     summaryUpdate: instructionDensity(SUMMARY_UPDATE_PROMPT),
@@ -466,6 +496,7 @@ function structural() {
 
   const tokenCosts = {
     agentsContract: estimateTokens(DEFAULT_AGENTS_CONTRACT),
+    compactContract: estimateTokens(COMPACT_AGENTS_CONTRACT),
     // The three identity slots, measured apart so a rule migrating between them
     // shows up as a delta rather than hiding inside a total.
     defaultPersona: estimateTokens(DEFAULT_PERSONA_RESOLVED),

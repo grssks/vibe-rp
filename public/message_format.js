@@ -50,53 +50,65 @@ export function formatProse(text) {
   // `<hr>` would be escaped by step 5).
   s = s.replace(/^(?:---|\*\*\*|___)\s*$/gm, `\n\n${token("HR", 0)}\n\n`);
 
-  // 4. Strip em-dashes per anti-slop rules
-  s = s
-    .replace(/(?<!-)--/g, ", ")
-    .replace(/—/g, ", ");
-
-  // 5. Escape raw HTML for all non-code content (before blockquote's &gt; match),
+  // 4. Escape raw HTML for all non-code content (before blockquote's &gt; match),
   // then restore the hr token. The token carries no character escapeHtml or the
   // markdown passes below can touch, so it survives them byte-identical.
   s = escapeHtml(s).replace(TOKEN_RE("HR"), '<hr class="prose-hr">');
 
-  // 6. Blockquotes (handling &gt; since escapeHtml escaped >)
+  // 5. Blockquotes (handling &gt; since escapeHtml escaped >)
   s = s.replace(/^(?:&gt;|>)[ \t]?(.*)$/gm, '<blockquote class="prose-quote">$1</blockquote>');
 
-  // 7. Headers (at start of line)
+  // 6. Headers (at start of line)
   s = s.replace(/^### (.*$)/gim, '<h3 class="prose-h3">$1</h3>');
   s = s.replace(/^## (.*$)/gim, '<h2 class="prose-h2">$1</h2>');
   s = s.replace(/^# (.*$)/gim, '<h1 class="prose-h1">$1</h1>');
 
-  // 7. Bold + Italic: ***text*** or ___text___
-  s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-  s = s.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+  // 7. Bold + Italic: ***text*** or ___text___ (single paragraph, boundary-safe underscores)
+  s = s.replace(/\*\*\*((?:[^\n*]|\n(?!\n))+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  s = s.replace(/(?<![\p{L}\p{N}_])___((?:[^\n_]|\n(?!\n))+?)___(?![\p{L}\p{N}_])/gu, '<strong><em>$1</em></strong>');
 
   // Bold: **text** or __text__
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  s = s.replace(/\*\*((?:[^\n*]|\n(?!\n))+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(?<![\p{L}\p{N}_])__((?:[^\n_]|\n(?!\n))+?)__(?![\p{L}\p{N}_])/gu, '<strong>$1</strong>');
 
   // Italic: *text* or _text_
-  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  s = s.replace(/_([^_]+)_/g, '<em>$1</em>');
+  s = s.replace(/\*((?:[^\n*]|\n(?!\n))+?)\*/g, '<em>$1</em>');
+  s = s.replace(/(?<![\p{L}\p{N}_])_((?:[^\n_]|\n(?!\n))+?)_(?![\p{L}\p{N}_])/gu, '<em>$1</em>');
 
   // Strikethrough: ~~text~~
-  s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  s = s.replace(/~~((?:[^\n~]|\n(?!\n))+?)~~/g, '<del>$1</del>');
 
   // Note: We deliberately do NOT wrap dialogue in <q> tags.
   // In browsers, <q> automatically inserts quotes, causing duplicate quotes (""...""").
   // Plain text quotes render naturally, cleanly, and consistently across all platforms.
 
-  // 8. Split into paragraphs on double-newlines
+  // 8. Split into paragraphs on double-newlines, wrapping non-block lines inside mixed chunks.
+  const isBlockLine = (line) => /^<(?:h[123]|blockquote|pre|hr)\b/i.test(line) || TOKEN_RE("CODEBLOCK").test(line);
   const chunks = s.split(/\n{2,}/);
   const formatted = chunks.map(chunk => {
     const trimmed = chunk.trim();
     if (!trimmed) return "";
-    // If it starts with a block tag or a code-block token, don't wrap in <p>.
-    if (/^<(h1|h2|h3|blockquote|pre|hr)/i.test(trimmed) || TOKEN_RE("CODEBLOCK").test(trimmed)) {
-      return trimmed;
+    if (!trimmed.includes("\n")) {
+      return isBlockLine(trimmed) ? trimmed : `<p>${trimmed}</p>`;
     }
-    return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
+    const lines = trimmed.split("\n");
+    const out = [];
+    let inlineRun = [];
+    const flushInline = () => {
+      if (!inlineRun.length) return;
+      out.push(`<p>${inlineRun.join("<br>")}</p>`);
+      inlineRun = [];
+    };
+    for (const line of lines) {
+      if (isBlockLine(line.trim())) {
+        flushInline();
+        out.push(line.trim());
+      } else {
+        inlineRun.push(line);
+      }
+    }
+    flushInline();
+    return out.join("");
   }).filter(Boolean);
 
   let result = formatted.join("");

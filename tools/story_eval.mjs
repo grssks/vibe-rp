@@ -114,9 +114,20 @@ const SYCOPHANCY = [
 // Events the story established, so a later reply can be checked for carrying them.
 const ORDEAL_TOKENS = ["shoulder", "leg", "water", "lamp", "map", "maps", "stair", "beam", "blood", "pinned"];
 
+const BOUNDARY_RE_CACHE = new Map();
+function termRegex(word) {
+  let re = BOUNDARY_RE_CACHE.get(word);
+  if (!re) {
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tail = /[\p{L}\p{N}]$/u.test(word) ? "(?![\\p{L}\\p{N}])" : "";
+    re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}${tail}`, "giu");
+    BOUNDARY_RE_CACHE.set(word, re);
+  }
+  return re;
+}
 const count = (text, list) => {
-  const lower = ` ${String(text).toLowerCase()} `;
-  return list.reduce((n, w) => n + (lower.split(w).length - 1), 0);
+  const src = String(text || "");
+  return list.reduce((n, w) => n + (src.match(termRegex(w)) || []).length, 0);
 };
 const sentences = (text) => String(text).split(/[.!?]+\s|\n+/).map((s) => s.trim()).filter((s) => s.length > 1);
 const words = (text) => String(text).split(/\s+/).filter(Boolean).length;
@@ -147,17 +158,16 @@ function measure(reply, priorText) {
 // ───────────────────────── one run ─────────────────────────
 
 async function runOrdeal({ label, engine, settings, contract }) {
-  const messages = [];
+  const sessionState = { id: "s", cardId: CARD.id, messages: [], ledger: "", consumed: 1 };
   const rows = [];
   const transcript = [];
   let allText = "";
   for (let i = 0; i < ORDEAL.length; i++) {
-    messages.push({ role: "user", content: ORDEAL[i] });
-    const session = { id: "s", cardId: CARD.id, messages: structuredClone(messages), ledger: "", consumed: 1 };
+    sessionState.messages.push({ role: "user", content: ORDEAL[i] });
     let reply = "";
     try {
       const out = await engine.streamTurn({
-        card: CARD, session, settings, persona: PERSONA, agentsContract: contract,
+        card: CARD, session: sessionState, settings, persona: PERSONA, agentsContract: contract,
         onChunk: (c) => { reply += c; }, onNotice: () => {},
       });
       reply = typeof out === "string" ? out : reply;
@@ -168,7 +178,7 @@ async function runOrdeal({ label, engine, settings, contract }) {
     const m = measure(reply, allText);
     rows.push({ turn: i + 1, ...m });
     transcript.push({ turn: i + 1, player: ORDEAL[i], reply });
-    messages.push({ role: "assistant", content: reply });
+    sessionState.messages.push({ role: "assistant", content: reply });
     allText += "\n" + reply;
   }
   return { label, rows, transcript };

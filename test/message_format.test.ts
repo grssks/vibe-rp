@@ -73,9 +73,9 @@ describe("formatProse", () => {
     expect(formatProse("~~gone~~")).toContain("<del>gone</del>");
   });
 
-  test("replaces em-dashes per anti-slop rules", () => {
-    expect(formatProse("wait — what")).toBe("<p>wait ,  what</p>");
-    expect(formatProse("wait -- what")).toBe("<p>wait ,  what</p>");
+  test("preserves em-dashes and double-dashes", () => {
+    expect(formatProse("wait — what")).toBe("<p>wait — what</p>");
+    expect(formatProse("wait -- what")).toBe("<p>wait -- what</p>");
   });
 
   test("renders horizontal rule scene breaks", () => {

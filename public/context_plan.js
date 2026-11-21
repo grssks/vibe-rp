@@ -1,6 +1,6 @@
 // Pure context planning, token budgeting, and allocation engine (zero DOM).
 
-import { utf8Decoder } from "./text.js";
+import { INVISIBLE_RE } from "./text.js";
 
 const tokenCache = new Map();
 const BYTE_CACHE_MAX = 4096;
@@ -9,7 +9,6 @@ const BYTE_CACHE_MAX = 4096;
 // entries go, however few that is.
 const BYTE_CACHE_BYTES_MAX = 32 * 1024 * 1024;
 let byteCacheBytes = 0;
-const textEncoder = new TextEncoder();
 
 /**
  * Token estimate: UTF-8 bytes / 4 with safe multilingual calibration.
@@ -69,11 +68,11 @@ export function countMessages(messages) {
   return total;
 }
 
-/** Trims zero-width characters, excessive blank lines, and invisible tokens (RTK). */
+/** Trims zero-width characters, excessive blank lines, and invisible tokens. */
 export function cleanPromptText(text) {
   if (typeof text !== "string") return "";
   return text
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g, "")
+    .replace(INVISIBLE_RE, "")
     .replace(/\r\n?/g, "\n")
     .replace(/[ \t]+$/gm, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -98,8 +97,8 @@ export function resolveSafetyMargin(contextWindow) {
 export const SUMMARY_TARGET_WORDS = 700;
 export const SUMMARY_UPDATE_TARGET_WORDS = 900;
 export const LEDGER_OPEN =
-  "The story so far, in ledger form. This is settled continuity: build on it and never contradict it. " +
-  "Each character's knowledge is scoped to what they have witnessed or been told — consult each character's Cast entry before writing them; no character may act on, reference, or react to information absent from it.\n\n<ledger>\n";
+  "The story so far, in ledger form. Treat this as settled continuity and build directly on it. " +
+  "Each character's knowledge is scoped to what they have witnessed or been told — consult each character's Cast entry before writing them, keeping their actions, references, and reactions within what they know.\n\n<ledger>\n";
 export const LEDGER_CLOSE = "\n</ledger>";
 export const LEDGER_HARD_MAX_TOKENS = 16384;
 
@@ -145,45 +144,50 @@ export function frameLedger(ledger) {
 export function ledgerFramingTokens() {
   return estimateTokens(LEDGER_OPEN + LEDGER_CLOSE) + 4;
 }
+function isHighSurrogate(code) {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function snapCodePointBoundary(str, idx) {
+  let cut = Math.max(0, Math.min(str.length, idx));
+  if (cut > 0 && cut < str.length && isHighSurrogate(str.charCodeAt(cut - 1))) {
+    cut -= 1;
+  }
+  return cut;
+}
+
 export function clipLedgerToTokens(text, maxTokens, marker = "\n- [older ledger material omitted at the size ceiling; the full transcript is preserved]") {
   const str = typeof text === "string" ? text : String(text ?? "");
   const limit = Math.max(0, Math.floor(Number(maxTokens) || 0));
-  if (!str) return "";
-  if (limit <= 0) return marker.trim();
+  if (!str || limit <= 0) return "";
   if (estimateTokens(str) <= limit) return str;
-  const markerTokens = estimateTokens(marker);
-  const byteBudget = Math.max(0, (limit - markerTokens) * 4);
-  const bytes = textEncoder.encode(str);
-  let kept;
-  if (bytes.length <= byteBudget) {
-    kept = str;
-  } else {
-    let end = byteBudget;
-    while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
-    if (end > 0) {
-      const lead = bytes[end];
-      let need = 1;
-      if ((lead & 0xe0) === 0xc0) need = 2;
-      else if ((lead & 0xf0) === 0xe0) need = 3;
-      else if ((lead & 0xf8) === 0xf0) need = 4;
-      if (end + need <= byteBudget) {
-        end += need;
-      }
+
+  const markerStr = typeof marker === "string" ? marker : "";
+  const markerTokens = markerStr ? estimateTokens(markerStr) : 0;
+  const useMarker = markerStr && markerTokens < limit;
+  const suffix = useMarker ? markerStr : "";
+
+  let lo = 0;
+  let hi = str.length;
+  let best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const cut = snapCodePointBoundary(str, mid);
+    const candidate = `${str.slice(0, cut)}${suffix}`;
+    if (estimateTokens(candidate) <= limit) {
+      best = cut;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
     }
-    kept = utf8Decoder.decode(bytes.subarray(0, end));
-    const nl = kept.lastIndexOf("\n");
-    const sp = kept.lastIndexOf(" ");
-    const cut = nl > kept.length * 0.5 ? nl : sp > kept.length * 0.5 ? sp : -1;
-    if (cut > 0) kept = kept.slice(0, cut);
   }
-  // Shrink geometrically, not one char at a time: the naive loop is
-  // quadratic on a huge multibyte ledger clipped to a tiny limit.
-  while (kept && estimateTokens(`${kept}${marker}`) > limit) {
-    const over = estimateTokens(`${kept}${marker}`) - limit;
-    const drop = Math.max(1, Math.ceil(over * 4 * 1.1));
-    kept = kept.slice(0, Math.max(0, kept.length - drop));
-  }
-  return `${kept}${marker}`;
+
+  let kept = str.slice(0, best);
+  const nl = kept.lastIndexOf("\n");
+  const sp = kept.lastIndexOf(" ");
+  const boundary = nl > kept.length * 0.5 ? nl : sp > kept.length * 0.5 ? sp : -1;
+  if (boundary > 0) kept = kept.slice(0, snapCodePointBoundary(kept, boundary));
+  return `${kept}${suffix}`;
 }
 
 function scaleSummaryBudget(workload) {
@@ -200,31 +204,34 @@ export function resolveSummaryBudget({
   transcriptTokens = 0,
   ledgerTokens = 0,
   promptTokens = 0,
+  overheadTokens = 0,
   contextWindow = 0,
   hasPriorLedger = false,
   extraTokens = 0,
 } = {}) {
   const transcript = Math.max(0, Number(transcriptTokens) || 0);
   const ledger = Math.max(0, Number(ledgerTokens) || 0);
-  const overhead = Math.max(0, Number(promptTokens) || 0);
+  const overhead = Math.max(0, Number(promptTokens) || 0) + Math.max(0, Number(overheadTokens) || 0);
   const workload = transcript + Math.floor(ledger * 0.5);
   let budget = scaleSummaryBudget(workload) + Math.max(0, Number(extraTokens) || 0);
   if (hasPriorLedger) budget = Math.min(SUMMARY_MAX_TOKENS, budget + SUMMARY_REASONING_HEADROOM);
   const window = Math.max(0, Number(contextWindow) || 0);
   if (window > 0) {
-    const headroom = window - (overhead + transcript + ledger) - TOKEN_SAFETY_MARGIN;
+    const margin = Math.max(TOKEN_SAFETY_MARGIN, resolveSafetyMargin(window));
+    const headroom = window - (overhead + transcript + ledger) - margin;
     budget = Math.max(SUMMARY_FLOOR_TOKENS, Math.min(budget, headroom));
   }
   return Math.max(SUMMARY_FLOOR_TOKENS, Math.min(SUMMARY_MAX_TOKENS, budget));
 }
 
-export function fitFoldLedgerTokens({ contextWindow = 0, promptTokens = 0, transcriptTokens = 0, ledgerTokens = 0 } = {}) {
+export function fitFoldLedgerTokens({ contextWindow = 0, promptTokens = 0, overheadTokens = 0, transcriptTokens = 0, ledgerTokens = 0 } = {}) {
   const window = Math.max(0, Number(contextWindow) || 0);
   const ledger = Math.max(0, Number(ledgerTokens) || 0);
   if (window <= 0 || ledger <= 0) return ledger;
-  const overhead = Math.max(0, Number(promptTokens) || 0);
+  const overhead = Math.max(0, Number(promptTokens) || 0) + Math.max(0, Number(overheadTokens) || 0);
   const transcript = Math.max(0, Number(transcriptTokens) || 0);
-  const forLedger = window - overhead - transcript - SUMMARY_FLOOR_TOKENS - TOKEN_SAFETY_MARGIN;
+  const margin = Math.max(TOKEN_SAFETY_MARGIN, resolveSafetyMargin(window));
+  const forLedger = window - overhead - transcript - SUMMARY_FLOOR_TOKENS - margin;
   if (forLedger >= ledger) return ledger;
   return Math.max(0, forLedger);
 }

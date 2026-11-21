@@ -81,15 +81,17 @@ export function updateModelCapability(endpoint, model, updates) {
   persistCapabilities();
 }
 
+function lowerMedian(nums) {
+  const sorted = nums.slice().sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
+}
+
 /**
- * Records one observation of how many tokens the endpoint bills *before* the
- * payload the app sent. A gateway that injects a hidden preamble bills a
- * constant the app cannot see; measuring it is the only way to budget for it.
- *
- * Kept as a median over the last few samples so one anomalous response cannot
- * move the figure, and only recorded when the delta is a plausible preamble —
- * a negative or absurd value means the provider reports usage differently, and
- * storing it would corrupt every later budget.
+ * Records one observation of how many tokens the endpoint bills versus our
+ * estimate. Separates fixed per-request preamble (gateway injections) from
+ * linear tokenizer-ratio scaling (e.g. non-English or high-ratio tokenizers)
+ * whenever samples span distinct request sizes (`|s2 - s1| >= 500`), falling
+ * back to raw lower-median overhead on single or fixed-size observations.
  */
 export function notePromptOverhead(endpoint, model, billed, sent) {
   if (typeof billed !== "number" || typeof sent !== "number") return;
@@ -100,20 +102,41 @@ export function notePromptOverhead(endpoint, model, billed, sent) {
   const samples = Array.isArray(cap.promptOverheadSamples) ? cap.promptOverheadSamples.slice() : [];
   samples.push(Math.round(delta));
   while (samples.length > OVERHEAD_SAMPLES) samples.shift();
-  // Lower median: with an even count this takes the smaller of the middle two,
-  // so the figure errs toward under-claiming. An overhead that is too small
-  // leaves the existing safety margin to absorb it and the overflow re-fit to
-  // catch it; one that is too large would silently shrink every request.
-  const sorted = samples.slice().sort((a, b) => a - b);
-  const median = sorted[Math.floor((sorted.length - 1) / 2)];
-  updateModelCapability(endpoint, model, { promptOverheadSamples: samples, promptOverheadTokens: median });
+
+  const pairs = Array.isArray(cap.promptOverheadPairs) ? cap.promptOverheadPairs.slice() : [];
+  pairs.push([Math.round(sent), Math.round(billed)]);
+  while (pairs.length > OVERHEAD_SAMPLES) pairs.shift();
+
+  const slopes = [];
+  for (let i = 0; i < pairs.length; i += 1) {
+    for (let j = i + 1; j < pairs.length; j += 1) {
+      const ds = pairs[j][0] - pairs[i][0];
+      if (Math.abs(ds) >= 500) {
+        slopes.push((pairs[j][1] - pairs[i][1]) / ds);
+      }
+    }
+  }
+
+  let tokenRatio = 1;
+  let fixedOverhead = lowerMedian(samples);
+  if (slopes.length > 0) {
+    const rawSlope = lowerMedian(slopes);
+    tokenRatio = Math.max(1, Math.min(2.5, Math.round(rawSlope * 100) / 100));
+    const intercepts = pairs.map(([s, b]) => Math.max(0, Math.round(b - tokenRatio * s)));
+    fixedOverhead = lowerMedian(intercepts);
+  }
+
+  updateModelCapability(endpoint, model, {
+    promptOverheadSamples: samples,
+    promptOverheadPairs: pairs,
+    promptOverheadTokens: fixedOverhead,
+    promptTokenRatio: tokenRatio,
+  });
 }
 
 /**
- * The measured per-request overhead for this endpoint, or 0 when it has never
- * been observed. Zero is the honest default: it means "assume the provider
- * bills what we sent", which is the behaviour of every provider that does not
- * inject anything.
+ * The measured per-request fixed preamble for this endpoint, or 0 when none
+ * has been observed.
  */
 export function promptOverheadTokens(settings = {}) {
   const cap = getModelCapability(settings?.apiEndpoint, settings?.model);
@@ -123,53 +146,69 @@ export function promptOverheadTokens(settings = {}) {
 }
 
 /**
- * The per-request overhead frozen for one session.
- *
- * `planRequest` charges the measured preamble against the window, and the
- * measured value is a median over a sliding window of samples — so on an
- * endpoint whose reports jitter it moves from turn to turn. Every move re-plans
- * the request, and a re-plan can change the system message, the recap, or where
- * the history is cut, all of which sit *before* the new content. Measured: a
- * single re-plan cost 49.5 points of cache-served input at a 6,144-token window,
- * and the charged value moved on 43% of turns under the jitter a real gateway
- * showed.
- *
- * Freezing it for the life of a session removes that whole class of
- * self-inflicted prefix break while still learning across sessions: the store
- * keeps sampling, and the next session starts from whatever it learned.
- *
- * Keyed weakly on the session object, so there is no schema change, nothing to
- * clean up, and nothing that outlives the session.
+ * Learned multiplier of the provider's tokenizer relative to `estimateTokens`
+ * (1 when unmeasured or indistinguishable from 1).
  */
+export function promptTokenRatio(settings = {}) {
+  const cap = getModelCapability(settings?.apiEndpoint, settings?.model);
+  return typeof cap.promptTokenRatio === "number" && cap.promptTokenRatio > 1
+    ? cap.promptTokenRatio
+    : 1;
+}
+
 let sessionOverhead = new WeakMap();
+let sessionTokenRatios = new WeakMap();
 
 /**
  * The overhead to charge for one session: the value frozen at the first plan
  * that had one, otherwise the learned value, which is then frozen.
- *
- * A session that begins before the endpoint has ever reported an overhead
- * charges nothing and freezes nothing, so the first observation still lands and
- * every turn after it is stable.
  */
 export function sessionOverheadTokens(settings = {}, session = null) {
   const learned = promptOverheadTokens(settings);
   if (!session || typeof session !== "object") return learned;
-  const frozen = sessionOverhead.get(session);
+  const scopeKey = capabilityKey(settings?.apiEndpoint, settings?.model);
+  let byModel = sessionOverhead.get(session);
+  if (!byModel) {
+    byModel = new Map();
+    sessionOverhead.set(session, byModel);
+  }
+  const frozen = byModel.get(scopeKey);
   if (frozen !== undefined) return frozen;
   if (learned <= 0) return 0;
-  sessionOverhead.set(session, learned);
+  byModel.set(scopeKey, learned);
   return learned;
 }
 
-export function clearModelCapabilities() {
+/**
+ * Tokenizer ratio frozen per `(session, endpoint, model)` to avoid mid-session
+ * prefix invalidation when samples jitter.
+ */
+export function sessionTokenRatio(settings = {}, session = null) {
+  const learned = promptTokenRatio(settings);
+  if (!session || typeof session !== "object") return learned;
+  const scopeKey = capabilityKey(settings?.apiEndpoint, settings?.model);
+  let byModel = sessionTokenRatios.get(session);
+  if (!byModel) {
+    byModel = new Map();
+    sessionTokenRatios.set(session, byModel);
+  }
+  const frozen = byModel.get(scopeKey);
+  if (frozen !== undefined) return frozen;
+  if (learned <= 1) return 1;
+  byModel.set(scopeKey, learned);
+  return learned;
+}
+
+export function invalidateCapabilitiesCache() {
   modelCapabilities.clear();
-  // A frozen overhead derives from the store, so forgetting the store forgets it.
+  // A frozen overhead or ratio derives from the store, so forgetting the store forgets both.
   sessionOverhead = new WeakMap();
-  // Re-arm hydration rather than latching it shut: clearing means "forget
-  // everything", including what was read from storage, so a later read picks up
-  // whatever the store holds then. The store is emptied here too, so in normal
-  // use the next read finds nothing.
+  sessionTokenRatios = new WeakMap();
   capabilitiesHydrated = false;
+}
+
+export function clearModelCapabilities() {
+  invalidateCapabilitiesCache();
   const store = capabilityStorage();
   if (!store) return;
   try {
@@ -237,8 +276,12 @@ export function detectParameterRejection(err) {
   const unsupportedPromptCacheKey =
     /prompt_cache_key.*?(?:not supported|unsupported|unrecognized|unknown|invalid|not permitted|extra)/i.test(msg) ||
     /(?:unsupported|unrecognized|unknown|extra).{0,40}?prompt_cache_key/i.test(msg);
+  const unsupportedResponseFormat =
+    /response_format.*?(?:not supported|unsupported|unrecognized|unknown|invalid|not permitted|extra)/i.test(msg) ||
+    /(?:unsupported|unrecognized|unknown|invalid).{0,40}?response_format/i.test(msg) ||
+    /json_object.*?(?:not supported|unsupported|invalid)/i.test(msg);
 
-  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedStreamOptions || unsupportedCacheControl || unsupportedPromptCacheKey) {
+  if (unsupportedTemp || needsMaxCompletionTokens || needsMaxTokens || unsupportedReasoningEffort || unsupportedStreamOptions || unsupportedCacheControl || unsupportedPromptCacheKey || unsupportedResponseFormat) {
     return {
       unsupportedTemp,
       needsMaxCompletionTokens,
@@ -247,6 +290,7 @@ export function detectParameterRejection(err) {
       unsupportedStreamOptions,
       unsupportedCacheControl,
       unsupportedPromptCacheKey,
+      unsupportedResponseFormat,
     };
   }
   return null;
@@ -304,12 +348,25 @@ export function summaryModelOf(settings = {}) {
  */
 export function shouldUseCacheBreakpoints(settings = {}, capability = null) {
   const cap = capability || getModelCapability(settings?.apiEndpoint, settings?.model);
+  if (settings?.promptCacheBreakpoints === false) return false;
   if (cap.supportsCacheControl === false) return false;
   if (cap.supportsCacheControl === true) return true;
-  if (settings?.promptCacheBreakpoints === false) return false;
   const endpoint = String(settings?.apiEndpoint || "").toLowerCase();
   const model = String(settings?.model || "").toLowerCase();
   return endpoint.includes("anthropic") || model.includes("claude");
+}
+
+/**
+ * Whether structured JSON mode (`response_format: { type: "json_object" }`)
+ * should be requested for auxiliary JSON tasks like Choice Mode.
+ */
+export function shouldUseJsonResponseFormat(settings = {}, capability = null) {
+  const cap = capability || getModelCapability(settings?.apiEndpoint, settings?.model);
+  if (cap.supportsResponseFormat === false) return false;
+  if (settings?.choiceJsonMode === false) return false;
+  const endpoint = String(settings?.apiEndpoint || "").toLowerCase();
+  if (endpoint.includes("api.anthropic.com")) return false;
+  return true;
 }
 
 /**
@@ -362,11 +419,11 @@ export function withCacheBreakpoints(messages) {
 
 /**
  * Records that a model reasons on its own, inferred from the provider's own
- * usage report rather than from the model's name.
+ * usage report or streaming reasoning deltas rather than from the model's name.
  */
-export function noteObservedReasoning(endpoint, model, usage) {
+export function noteObservedReasoning(endpoint, model, usage, sawReasoningDelta = false) {
   const reasoning = usage?.completion_tokens_details?.reasoning_tokens;
-  if (typeof reasoning === "number" && reasoning > 0) {
+  if (sawReasoningDelta || (typeof reasoning === "number" && reasoning > 0)) {
     updateModelCapability(endpoint, model, { observedReasoning: true });
   }
 }

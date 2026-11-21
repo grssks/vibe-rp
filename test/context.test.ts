@@ -685,7 +685,7 @@ describe("Context planners - history hygiene and lore selection", () => {
     });
     const sys = plan.systemPrompt;
     expect(sys).toContain("[User Persona: Rin]");
-    expect(sys).toContain("Card Reading:");
+    expect(sys).not.toContain("Card Reading:");
     expect(sys).toContain("Epistemic Boundary (Anti-Omniscience)");
     expect(sys).toContain("discover names, backstory, and private traits only as revealed on the page");
   });
@@ -695,7 +695,14 @@ describe("Context planners - history hygiene and lore selection", () => {
   // means none of them would notice if the section said the wrong thing or was
   // written in the wrong language. These two assert its content.
   test("cardReading states the one card rule the contract does not", () => {
-    const card = { data: { name: "Elena", description: "An alchemist.", scenario: "A storm." } };
+    const card = {
+      data: {
+        name: "Elena",
+        description: "An alchemist.",
+        scenario: "A storm.",
+        mes_example: "<START>\n{{user}}: hi\n{{char}}: stay back.",
+      },
+    };
     const persona = { name: "Rin", description: "An engineer from a distant land." };
     const plan = BrowserChatEngine.planRequest({
       card,
@@ -730,7 +737,7 @@ describe("Context planners - history hygiene and lore selection", () => {
       // The section survives and keeps its perception boundary; only the
       // generic-response licence is gone.
       expect(engineAuthored).toContain("Epistemic Boundary (Anti-Omniscience)");
-      expect(engineAuthored).toContain("and no more than that");
+      expect(engineAuthored).toContain("reading solely observable cues");
     }
   });
 
@@ -949,7 +956,14 @@ describe("Context planners - history hygiene and lore selection", () => {
   // states only what the contract does not, and the language mechanism lives in
   // the contract alone — which is where the user chooses it.
   test("the system prompt builder names no language of its own", () => {
-    const card = { data: { name: "Elena", description: "An alchemist.", scenario: "A storm." } };
+    const card = {
+      data: {
+        name: "Elena",
+        description: "An alchemist.",
+        scenario: "A storm.",
+        mes_example: "<START>\n{{user}}: hi\n{{char}}: stay back.",
+      },
+    };
     const persona = { name: "Rin", description: "An engineer from a distant land." };
     const session = { messages: [{ role: "user", content: "I knock." }] };
 
@@ -976,7 +990,14 @@ describe("Context planners - history hygiene and lore selection", () => {
   // approach universal. This pins the whole engine-authored surface at once, so
   // a prompt that names or assumes a language cannot slip in.
   test("every engine-authored prompt is English and names no language", () => {
-    const card = { data: { name: "Elena", description: "An alchemist.", scenario: "A storm." } };
+    const card = {
+      data: {
+        name: "Elena",
+        description: "An alchemist.",
+        scenario: "A storm.",
+        mes_example: "<START>\n{{user}}: hello\n{{char}}: stay back.",
+      },
+    };
     const persona = { name: "Rin", description: "An engineer from a distant land." };
     const engineAuthored = {
       ledgerCompress: LEDGER_COMPRESS_PROMPT,
@@ -1293,7 +1314,7 @@ describe("Ensemble cards - multi-character cast roster", () => {
     expect(prompt).toContain("drifter, watchful");
     expect(prompt).toContain("Marlow");
     expect(prompt).toContain("voice: nervous, clipped");
-    expect(prompt).toContain("Never merge two named characters into one");
+    expect(prompt).toContain("keep each character separate in voice, speech, and action");
     expect(prompt).toContain("Each member's familiarity");
     // The primary character is rendered by CHARACTER IN SCENE, not duplicated.
     expect(prompt.match(/Aria/g).length).toBeLessThanOrEqual(2);

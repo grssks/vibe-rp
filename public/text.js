@@ -3,16 +3,21 @@
 // nothing can form an import cycle through it.
 //
 // Exports
+//   INVISIBLE_RE              control, zero-width, and bidi-override character regex
 //   utf8Decoder               the one shared UTF-8 TextDecoder instance
 //   resolvePronouns            infers or extracts pronouns for persona/player
 //   substitutePlaceholders     resolves {{user}}/{{char}} aliases
 //   stripThoughtBlocks         removes reasoning/scratchpad blocks
+//   stripQuotedDialogue        removes quoted speech and dash-prefixed dialogue lines
 //   renderInlineField          flattens a value for a single-line field slot
 //   neutralizeDelimiters       escapes bracket/quote delimiters in field slots
 //   findImpersonationBoundary  detects hallucinated player turn boundary
 //   pruneImpersonation         truncates completion at player turn boundary
 //   REFUSAL_RE                 multilingual refusal and safety-leak detector heuristic
 //   looksLikeModelRefusal      detects model safety refusals and policy preambles
+
+/** Control, zero-width, and bidi-override characters stripped from prompt and choice inputs. */
+export const INVISIBLE_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
 
 /** Every byte-to-text path decodes UTF-8 the same way; one instance, reused. */
 export const utf8Decoder = new TextDecoder();
@@ -42,6 +47,20 @@ export function resolvePronouns(persona) {
     return { sub: "they", obj: "them", poss: "their", possp: "theirs", ref: "themselves" };
   }
 
+  if (persona && typeof persona === "object" && typeof persona.pronouns === "string") {
+    const rawParts = persona.pronouns.split("/").map((part) => part.trim().toLowerCase()).filter(Boolean);
+    if (rawParts.length >= 3) {
+      const [sub, obj, poss, possp, ref] = rawParts;
+      return {
+        sub,
+        obj,
+        poss,
+        possp: possp || (poss.endsWith("s") ? poss : `${poss}s`),
+        ref: ref || `${obj}self`,
+      };
+    }
+  }
+
   const text = typeof persona === "string"
     ? persona
     : [persona?.pronouns, persona?.description, persona?.template].filter(Boolean).join(" ");
@@ -50,9 +69,9 @@ export function resolvePronouns(persona) {
   // Multilingual markers: English, Japanese (彼/彼女/男性/女性), Chinese (他/她/男/女),
   // Spanish/Portuguese (él/ella/ele/ela/masculino/femenino), French (il/elle/homme/femme), German (er/sie/mann/frau),
   // Indonesian (pria/laki/wanita/perempuan), Russian (он/она/мужчина/женщина)
-  const hasHe = /\b(he\/him|he\/his|\bhe\b|\bhim\b|\bhis\b|\bhimself\b|\bmale\b|\bboy\b|\bman\b|masculin|masculino|homme|él|ele|il|er|ihn|ihm|sein|mann|pria|laki|он|его|ему)\b|[他彼]|男性|男\b/.test(p);
-  const hasShe = /\b(she\/her|\bshe\b|\bher\b|\bhers\b|\bherself\b|\bfemale\b|\bgirl\b|\bwoman\b|féminin|femme|femenino|feminino|ella|ela|elle|sie|ihr|frau|wanita|perempuan|она|её|ей)\b|[她]|彼女|女性|女\b/.test(p);
-  const hasIt = /\b(it\/its|\bit\b|\bits\b|\bitself\b|es|isso)\b|[它牠]/.test(p);
+  const hasHe = /(?<![\p{L}\p{N}_])(?:he\/him|he\/his|he|him|his|himself|male|boy|man|masculin|masculino|homme|él|ele|il|er|ihn|ihm|sein|mann|pria|laki|он|его|ему)(?![\p{L}\p{N}_])|[他彼]|男性|男/iu.test(p);
+  const hasShe = /(?<![\p{L}\p{N}_])(?:she\/her|she|her|hers|herself|female|girl|woman|féminin|femme|femenino|feminino|ella|ela|elle|sie|ihr|frau|wanita|perempuan|она|её|ей)(?![\p{L}\p{N}_])|[她]|彼女|女性|女/iu.test(p);
+  const hasIt = /(?<![\p{L}\p{N}_])(?:it\/its|its\/it|pronouns?\s*[:：]\s*it(?:\/its?)?|gender\s*[:：]\s*(?:it|neuter)|neuter(?:\s+pronouns?)?)(?![\p{L}\p{N}_])|[它牠]/iu.test(p);
 
   if (hasHe && !hasShe) {
     return { sub: "he", obj: "him", poss: "his", possp: "his", ref: "himself" };
@@ -78,21 +97,38 @@ function preserveMacroCase(macroMatch, replacement) {
   return replacement;
 }
 
+const MACRO_TOKEN_PATTERN = "user(?:_?name)?|(?:char|bot)(?:_?name)?|sub|obj|poss|possp|poss_p|ref";
+const PLACEHOLDER_RE = new RegExp(
+  `\\{\\{\\s*(${MACRO_TOKEN_PATTERN})\\s*\\}\\}|\\{\\s*(${MACRO_TOKEN_PATTERN})\\s*\\}|<\\s*(${MACRO_TOKEN_PATTERN})\\s*>`,
+  "gi"
+);
+
 export function substitutePlaceholders(text, { user, char, pronouns, persona } = {}) {
   if (!text) return "";
-  let s = String(text);
-  if (user) s = s.replace(/(?:\{\{|\{|<)\s*user(?:_?name)?\s*(?:\}\}|\}|>)/gi, () => user);
-  if (char) s = s.replace(/(?:\{\{|\{|<)\s*(?:char|bot)(?:_?name)?\s*(?:\}\}|\}|>)/gi, () => char);
-
+  const s = String(text);
   const pn = pronouns || resolvePronouns(persona);
-  if (pn) {
-    s = s.replace(/(?:\{\{|\{|<)\s*sub\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.sub));
-    s = s.replace(/(?:\{\{|\{|<)\s*obj\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.obj));
-    s = s.replace(/(?:\{\{|\{|<)\s*poss\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.poss));
-    s = s.replace(/(?:\{\{|\{|<)\s*(?:possp|poss_p)\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.possp));
-    s = s.replace(/(?:\{\{|\{|<)\s*ref\s*(?:\}\}|\}|>)/gi, (m) => preserveMacroCase(m, pn.ref));
-  }
-  return s;
+
+  return s.replace(PLACEHOLDER_RE, (match, gDouble, gSingle, gAngle, offset) => {
+    const key = (gDouble || gSingle || gAngle || "").toLowerCase();
+    // Preserve HTML markup like <sub>2</sub> and paired <ref>...</ref> tags.
+    if (gAngle && (key === "sub" || key === "ref")) {
+      const rest = s.slice(offset + match.length);
+      if (new RegExp(`</\\s*${key}\\s*>`, "i").test(rest)) return match;
+    }
+    if (key === "user" || key === "username" || key === "user_name") {
+      return user || match;
+    }
+    if (key === "char" || key === "charname" || key === "char_name" || key === "bot" || key === "botname" || key === "bot_name") {
+      return char || match;
+    }
+    if (!pn) return match;
+    if (key === "sub") return preserveMacroCase(match, pn.sub);
+    if (key === "obj") return preserveMacroCase(match, pn.obj);
+    if (key === "poss") return preserveMacroCase(match, pn.poss);
+    if (key === "possp" || key === "poss_p") return preserveMacroCase(match, pn.possp);
+    if (key === "ref") return preserveMacroCase(match, pn.ref);
+    return match;
+  });
 }
 
 /**
@@ -106,6 +142,28 @@ export function stripThoughtBlocks(text) {
   let clean = text.replace(/<(thought|think|reasoning)[^>]*>[\s\S]*?<\/\1>/gi, "");
   clean = clean.replace(/<(thought|think|reasoning)[^>]*>[\s\S]*$/gi,  "");
   return clean.trim();
+}
+
+/**
+ * Extracts reasoning/thought content from `<thought>`, `<think>`, and
+ * `<reasoning>` blocks, reporting whether an unclosed block is currently streaming.
+ */
+export function extractThoughtBlocks(text) {
+  if (typeof text !== "string" || !text) return { thought: "", isThinking: false };
+  const parts = [];
+  const closedRe = /<(thought|think|reasoning)[^>]*>([\s\S]*?)<\/\1>/gi;
+  let m;
+  while ((m = closedRe.exec(text)) !== null) {
+    const body = (m[2] || "").trim();
+    if (body) parts.push(body);
+  }
+  const strippedClosed = text.replace(/<(thought|think|reasoning)[^>]*>[\s\S]*?<\/\1>/gi, "");
+  const openMatch = /<(thought|think|reasoning)[^>]*>([\s\S]*)$/i.exec(strippedClosed);
+  const isThinking = Boolean(openMatch);
+  if (openMatch && openMatch[2]?.trim()) {
+    parts.push(openMatch[2].trim());
+  }
+  return { thought: parts.join("\n\n").trim(), isThinking };
 }
 
 /**
@@ -230,7 +288,7 @@ export function findImpersonationBoundary(text, { user = "" } = {}) {
     }
   }
   const pattern = new RegExp(
-    `(?:\\r?\\n)+(?:\\*{1,2})?(?:(?:${metaLabels.join("|")})(?:\\*{1,2})?\\s*[:：—–-]|(?:${speakerLabels.join("|")})(?:\\*{1,2})?\\s*[:：])(?:\\*{1,2})?\\s*(?:["“*「『\\w\\p{L}]|$)`,
+    `(?:\\r?\\n)+(?:\\*{1,2})?(?:(?:${metaLabels.join("|")})(?:\\*{1,2})?(?:\\s*[:：]|\\s+[—–-])|(?:${speakerLabels.join("|")})(?:\\*{1,2})?\\s*[:：])(?:\\*{1,2})?\\s*(?:["“*「『\\w\\p{L}]|$)`,
     "iu"
   );
   const match = pattern.exec(text);
@@ -259,7 +317,7 @@ export function pruneImpersonation(text, options = {}) {
 export const REFUSAL_RE = new RegExp(
   "(?:^[\\s\\n]*|[\\s。！？!?\\n])(?:" +
     // English refusals & apologetic declines
-    "(?:I\\s*(?:cannot|can'?t|won'?t|will\\s+not|am\\s+unable\\s+to|must\\s+decline)\\s+(?:fulfill|assist|generate|write|engage|provide|continue|participate|roleplay|comply|proceed|support))|" +
+    "(?:I\\s*(?:cannot|can'?t|won'?t|will\\s+not|am\\s+unable\\s+to|must\\s+decline)\\s+(?:to\\s+)?(?:(?:fulfill|assist|comply|roleplay)(?:\\s+(?:with|in)\\b|\\s+(?:this|that|the|your|such|a)\\b|$)|(?:generate|write|engage|provide|continue|participate|proceed|support)\\s+(?:with\\s+|in\\s+)?(?:(?:explicit|nsfw|sexual|erotic|violent|harmful|illegal|inappropriate|unethical)\\b|(?:this|that|the|your|such)\\s+(?:request|prompt|query|task|scenario|story|scene|roleplay|conversation|content|response|output|message|dialogue|topic|material|instruction)|that(?=[\\s.!?\\n]|$))))|" +
     "(?:sorry[\\s,.!][^\\n]{0,80}?(?:cannot|can'?t|won'?t|will\\s+not|unable\\s+to|not\\s+(?:able|allowed)|decline|refuse|comply))|" +
     "(?:as\\s+an?\\s+(?:ai|artificial\\s+intelligence|language\\s+model|assistant)[^\\n]{0,80}?(?:cannot|can'?t|unable|must\\s+decline|not\\s+allowed|prohibited))|" +
     "(?:(?:against|violates?)\\s+(?:my\\s+)?(?:safety\\s+policies|guidelines|terms\\s+of\\s+service|content\\s+policy|ethics))|" +
@@ -308,6 +366,21 @@ const EXPLICIT_POLICY_REFUSAL_RE = new RegExp(
 );
 
 /**
+ * Removes quoted dialogue spans (Western quotes, guillemets, CJK brackets) and
+ * dash-prefixed dialogue lines while preserving narrative paragraph boundaries.
+ */
+export function stripQuotedDialogue(text) {
+  return String(text || "")
+    .replace(/"[^"]*"/g, " ")
+    .replace(/[\u201C\u201E\u201A][^\u201D\u201F\u2018\u2019]*[\u201D\u201F\u2018\u2019]/g, " ")
+    .replace(/[\u00AB\u2039][^\u00BB\u203A]*[\u00BB\u203A]/g, " ")
+    .replace(/[「『《][^」』》]*[」』》]/g, " ")
+    .replace(/^[ \t]*[\u2014\u2013―]\s*[^\n]+$/gm, " ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+/**
  * Checks whether the given completion text exhibits model refusal characteristics.
  * Strips reasoning scratchpads and quoted in-character dialogue first so a
  * character saying `"I cannot comply with the council's demand"` or `"Maaf, aku
@@ -317,14 +390,7 @@ export function looksLikeModelRefusal(text) {
   if (typeof text !== "string") return false;
   const trimmed = stripThoughtBlocks(text);
   if (trimmed.length < 8) return false;
-  // Strip quoted dialogue spans so in-character speech cannot masquerade as an
-  // assistant refusal.
-  const unquoted = trimmed
-    .replace(/"[^"]*"/g, " ")
-    .replace(/[\u201C\u201E\u201A][^\u201D\u201F\u2018\u2019]*[\u201D\u201F\u2018\u2019]/g, " ")
-    .replace(/[\u00AB\u2039][^\u00BB\u203A]*[\u00BB\u203A]/g, " ")
-    .replace(/[「『《][^」』》]*[」』》]/g, " ")
-    .trim();
+  const unquoted = stripQuotedDialogue(trimmed);
   if (unquoted.length < 8) return false;
   if (EXPLICIT_POLICY_REFUSAL_RE.test(unquoted) && REFUSAL_RE.test(unquoted)) {
     return true;
@@ -344,6 +410,10 @@ const RPG_TITLE_RE = /\b(?:rpg|simulator|world|isekai|sandbox)\b/i;
 const DECLARED_NAME_RE =
   /(?:^|\n)\s*(?:#{1,6}\s*|\*{1,2}|-\s*\*{0,2}|\[)?\s*(?:full\s+name|character(?:'s)?\s+name|char\s+name|name|nama(?:\s+lengkap)?)\s*(?:\*{1,2}|#{1,6})?\s*[:：]\s*(?:\n+\s*)?([^\n\[*#<({|\]]+)/gi;
 const NON_NAME_VALUE_RE = /^(?:user|you|none|n\/a|unknown|tbd|character|protagonist|player|narrator|various|multiple)$/i;
+const NON_CHARACTER_SECTION_RE =
+  /^\s*(?:#{1,6}\s*|\*{1,2}|\[)?\s*(?:weapon|weapons|item|items|artifact|artifacts|gear|equipment|location|locations|setting|settings|place|places|building|buildings|tavern|inn|shop|store|ship|vessel|vehicle|vehicles|pet|pets|mount|mounts|skill|skills|ability|abilities|spell|spells|magic|organization|faction|guild|kingdom|empire|world|lore|residence|school|academy)\b/i;
+const INANIMATE_NOUN_RE =
+  /\b(?:sword|blade|dagger|shield|armor|staff|wand|bow|rifle|pistol|gun|tavern|inn|castle|tower|palace|academy|school|university|hospital|station|ship|vessel|boat|yacht|guild|kingdom|empire|forest|valley|mountain|river|cafe|café|shop|store|bar|club|hotel|mansion|apartment|manor|villa|temple|shrine|cathedral|dungeon|citadel|fortress|company|corp|corporation)\b/i;
 
 function firstString(...values) {
   for (const v of values) {
@@ -371,12 +441,17 @@ export function extractDeclaredCharacterNames(...texts) {
     DECLARED_NAME_RE.lastIndex = 0;
     let m;
     while ((m = DECLARED_NAME_RE.exec(raw)) !== null) {
+      const before = raw.slice(0, m.index);
+      const prevLines = before.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      const prevLine = prevLines.length ? prevLines[prevLines.length - 1] : "";
+      if (prevLine && NON_CHARACTER_SECTION_RE.test(prevLine)) continue;
       const candidate = m[1]
         .replace(/^[\s"'`“”‘’*_-]+|[\s"'`“”‘’*_.,;:-]+$/g, "")
         .replace(/\s+/g, " ")
         .trim();
       if (candidate.length < 2 || candidate.length > 48) continue;
       if (/\{\{.*\}\}/.test(candidate) || NON_NAME_VALUE_RE.test(candidate)) continue;
+      if (INANIMATE_NOUN_RE.test(candidate)) continue;
       const words = candidate.split(/\s+/);
       if (words.length < 1 || words.length > 4) continue;
       if (isTaglineOrScenarioTitle(candidate)) continue;
@@ -412,14 +487,15 @@ export function resolveCardIdentity(card) {
     };
   }
 
-  const declared = extractDeclaredCharacterNames(
+  const tagline = isTaglineOrScenarioTitle(rawName);
+  const isRpg = RPG_TITLE_RE.test(rawName);
+  const sources = [
     firstString(data?.personality, card?.personality),
     firstString(data?.description, card?.description),
     firstString(data?.system_prompt, card?.system_prompt),
-    firstString(data?.scenario, card?.scenario)
-  );
-  const tagline = isTaglineOrScenarioTitle(rawName);
-  const isRpg = RPG_TITLE_RE.test(rawName);
+  ];
+  if (tagline) sources.push(firstString(data?.scenario, card?.scenario));
+  const declared = extractDeclaredCharacterNames(...sources);
 
   if (tagline) {
     if (declared.length === 1 && !isRpg) {

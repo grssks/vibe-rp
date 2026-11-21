@@ -93,21 +93,37 @@ export function scopeKeyOf(parts = {}) {
  */
 export function buildUsageScopeKey({ card, persona, directive, settings } = {}) {
   const data = card?.data || card || {};
+  const loreBook = data.character_book || card?.character_book;
+  const bookKey = loreBook ? JSON.stringify(loreBook) : "";
   return scopeKeyOf({
     endpoint: settings?.apiEndpoint,
     model: settings?.model,
     cardId: card?.id,
     personaId: persona?.id,
     directiveId: directive?.id,
-    cardText: [data.name, data.description, data.personality, data.scenario, data.system_prompt]
+    cardText: [
+      data.name,
+      data.description,
+      data.personality,
+      data.scenario,
+      data.system_prompt,
+      data.mes_example || data.example_dialogs,
+      bookKey,
+    ]
       .filter(Boolean)
       .join("\u0000"),
     personaText: persona
-      ? [persona.name, persona.description, persona.template]
+      ? [persona.name, persona.gender, persona.description, persona.template]
           .filter(Boolean)
           .join("\u0000")
       : "",
-    directiveText: directive?.content || settings?.agentsContract || "",
+    directiveText: [
+      directive?.content ?? settings?.agentsContract ?? "",
+      settings?.reasoningEffort,
+      settings?.maxContextTokens,
+    ]
+      .filter((v) => v !== undefined && v !== null && v !== "")
+      .join("\u0000"),
   });
 }
 

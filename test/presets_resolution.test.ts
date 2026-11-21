@@ -137,7 +137,7 @@ describe("Empty & Simple System Prompts, Personas, and Cards Contract", () => {
   });
 
   test("formatSystemPrompt with simple name-only persona has no trailing dangling newline", () => {
-    const card = { data: { name: "Aria" } };
+    const card = { data: { name: "Aria", mes_example: "<START>\n{{user}}: Hi\n{{char}}: Wait." } };
     const prompt = BrowserChatEngine.formatSystemPrompt(card, { name: "Rowan" }, { agentsContract: "" });
     expect(prompt).toContain("[User Persona: Rowan]");
     expect(prompt).not.toMatch(/\[User Persona: Rowan\]\n(?!\n)/); // No single trailing newline before next block
@@ -149,7 +149,8 @@ describe("Empty & Simple System Prompts, Personas, and Cards Contract", () => {
     const card = { data: { name: "Aria" } };
     const prompt = BrowserChatEngine.formatSystemPrompt(card, { description: "A tired cartographer." }, { agentsContract: "" });
     expect(prompt).toContain("[User Persona: User]\nA tired cartographer.");
-    expect(prompt).toContain("Card Reading:");
+    expect(prompt).toContain("Epistemic Boundary");
+    expect(prompt).not.toContain("Card Reading:");
   });
 
   test("formatSystemPrompt with whitespace persona omits persona section completely", () => {
@@ -165,7 +166,7 @@ describe("Empty & Simple System Prompts, Personas, and Cards Contract", () => {
     expect(prompt).toContain("Speak in short sentences.");
     expect(prompt).toContain("### CHARACTER IN SCENE: Aria");
     expect(prompt).not.toContain("[User Persona");
-    expect(prompt).toContain("Card Reading:");
+    expect(prompt).toContain("Epistemic Boundary");
   });
 
   test("formatSystemPrompt with null card and null persona falls back to default character", () => {

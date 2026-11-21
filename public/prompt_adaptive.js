@@ -51,8 +51,9 @@
 //   countCrossTurnNgramEchoes  cross-lingual phrase repetition cluster detector
 //   isLikelyEnglish            function-word distribution check for Latin text
 //   isNonEnglishText           detects non-English user input or persona authority
+//   detectLanguageProfile      coarse language/script family classifier
 
-import { stripThoughtBlocks, renderInlineField } from "./text.js";
+import { stripThoughtBlocks, renderInlineField, stripQuotedDialogue } from "./text.js";
 import { estimateTokens } from "./context_plan.js";
 
 /** Hard ceiling for the whole block. It is a correction, not a second preset. */
@@ -65,29 +66,37 @@ export const ANALYSIS_WINDOW = 6;
 const countMatches = (text, re) => (text.match(re) || []).length;
 
 /**
- * Quoted spans carry the *character's* voice, not the narration's, so they are
- * removed before any narrator-level measurement (POV, tense, paragraph shape).
- * Straight and typographic quotes across all writing systems are handled:
- * standard Western quotes, French/Russian guillemets, German low quotes,
- * and CJK corner brackets. An unterminated quote runs to the end of the text.
+ * Strips quoted dialogue (all scripts) before narrator-level measurement.
  */
 export function narrationOnly(text) {
-  return String(text || "")
-    .replace(/"[^"]*"/g, " ")
-    .replace(/[\u201C\u201E\u201A][^\u201D\u201F\u2018\u2019]*[\u201D\u201F\u2018\u2019]/g, " ")
-    .replace(/[\u00AB\u2039][^\u00BB\u203A]*[\u00BB\u203A]/g, " ")
-    .replace(/[「『《][^」』》]*[」』》]/g, " ")
-    .replace(/^\s*[\u2014\u2013―]\s+[^\n]+$/gm, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return stripQuotedDialogue(text).replace(/\s{2,}/g, " ").trim();
 }
 
 /** Latin-letter share of a text's letters; 0 when it holds no letters at all. */
 export function latinShare(text) {
-  const letters = String(text || "").match(/\p{L}/gu) || [];
-  if (letters.length === 0) return 0;
-  const latin = letters.filter((ch) => /\p{Script=Latin}/u.test(ch)).length;
-  return latin / letters.length;
+  const s = String(text || "");
+  if (!s) return 0;
+  let letters = 0;
+  let latin = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const code = s.charCodeAt(i);
+    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+      letters += 1;
+      latin += 1;
+    } else if (code > 127) {
+      let allLetters = 0;
+      let latinLetters = 0;
+      const letterRe = /\p{L}/gu;
+      const latinRe = /\p{Script=Latin}/u;
+      let m;
+      while ((m = letterRe.exec(s)) !== null) {
+        allLetters += 1;
+        if (latinRe.test(m[0])) latinLetters += 1;
+      }
+      return allLetters === 0 ? 0 : latinLetters / allLetters;
+    }
+  }
+  return letters === 0 ? 0 : latin / letters;
 }
 
 let wordSegmenter = null;
@@ -132,6 +141,7 @@ export const PROSE_TICS = [
   {
     id: "contrast",
     priority: 70,
+    keep: 88,
     threshold: 2,
     multilingual: true,
     note: 'State the true thing once. The last replies leaned on the "not X, but Y" / "instead of X, Y" contrast.',
@@ -144,6 +154,7 @@ export const PROSE_TICS = [
   {
     id: "emotionMix",
     priority: 66,
+    keep: 84,
     threshold: 2,
     note: 'Anchor conflicted feelings in concrete physical reactions. The last replies leaned on abstract emotional pairing ("a mix of dread and relief").',
     count: (text) => countMatches(text, /\b(?:a|the)\s+(?:mix|mixture|blend|combination|flood|wave)\s+of\s+\w+(\s+\w+)?\s+and\s+\w+/gi),
@@ -151,39 +162,52 @@ export const PROSE_TICS = [
   {
     id: "askedThePlayer",
     priority: 68,
+    keep: 86,
     threshold: 3,
     structural: true,
     note: "Land on a line, an action, or a silence. The last replies each ended by handing the scene back.",
-    count: (_text, replies) => replies.filter((r) => /[?\uFF1F\u061F\u037E\u055E]\s*["'”»」』）)]*\s*$/u.test(r.trim())).length,
+    count: (_text, replies) => {
+      let streak = 0;
+      for (let i = replies.length - 1; i >= 0; i -= 1) {
+        if (/[?\uFF1F\u061F\u037E\u055E]\s*["'”»」』）)]*\s*$/u.test(replies[i].trim())) streak += 1;
+        else break;
+      }
+      return streak;
+    },
   },
   {
     id: "shrank",
     priority: 60,
+    keep: 80,
     threshold: 3,
     structural: true,
-    // A reply that is short is a choice. Three short replies in a row while the
-    // player is still writing paragraphs is a decay: the scene stops building.
-    // Growth from the session's own earlier replies counts as decay too, which
-    // catches a session that opened long and tapered off.
+    // A reply that is short is a choice. Three consecutive recent short replies
+    // while the player writes longer turns or the scene tapered off indicates decay.
     note: "Write into the momentum: physical presence, dialogue nuance, the immediate consequence of what just happened. The last replies are closing into brief exchanges.",
     count: (_text, replies, context = {}) => {
-      const short = replies.filter((r) => countWords(r) < 70);
-      if (short.length < 3) return 0;
-      const tapered = replies.length >= 3 && countWords(replies[0]) >= countWords(replies[replies.length - 1]) * 1.5;
-      const outwritten = (context.playerWords || 0) >= Math.max(40, (context.medianReplyWords || 0) * 1.5);
-      return tapered || outwritten ? short.length : 0;
+      const recent = replies.slice(-3);
+      if (recent.length < 3) return 0;
+      const recentCounts = recent.map(countWords);
+      if (recentCounts.some((n) => n >= 70)) return 0;
+      const tapered = countWords(replies[0]) >= countWords(replies[replies.length - 1]) * 1.5;
+      const floor = Math.max(40, (context.medianReplyWords || 0) * 1.5);
+      const currentOutwritten = (context.playerWords || 0) >= floor;
+      const stubOutwritten = Math.max(...recentCounts) < 20 && (context.medianPlayerWords || 0) >= floor;
+      return tapered || currentOutwritten || stubOutwritten ? recent.length : 0;
     },
   },
   {
     id: "triads",
     priority: 52,
+    keep: 52,
     threshold: 2,
     note: "Reach for one striking, concrete detail. The last replies leaned on three-item series.",
-    count: (text) => countMatches(text, /\b[\w'-]+,\s+[\w'-]+,\s+and\s+[\w'-]+/gi),
+    count: (text) => countMatches(text, /\b(?:[\w'-]+(?:\s+[\w'-]+){0,3}),\s+(?:[\w'-]+(?:\s+[\w'-]+){0,3}),\s+and\s+(?:[\w'-]+(?:\s+[\w'-]+){0,3})\b/gi),
   },
   {
     id: "simileTic",
     priority: 44,
+    keep: 64,
     threshold: 5,
     note: 'Trust the image on the page. The last replies kept reaching for "the way ..." similes.',
     count: (text) => countMatches(text, /\bthe way\s+(?:she|he|they|it|the|his|her|their|one)\b/gi),
@@ -191,6 +215,7 @@ export const PROSE_TICS = [
   {
     id: "negatedAction",
     priority: 48,
+    keep: 66,
     threshold: 7,
     note: 'Show the action that did happen. The last replies leaned on "did not / would not" negations.',
     count: (text) => countMatches(text, /\b(?:did not|didn'?t|does not|doesn'?t|had not|hadn'?t|would not|wouldn'?t|will not|won'?t)\b/gi),
@@ -198,6 +223,7 @@ export const PROSE_TICS = [
   {
     id: "explainedTheBeat",
     priority: 56,
+    keep: 76,
     threshold: 3,
     note: "Let the gesture, the silence, and the consequence land uninterpreted. The narration is explaining what the scene already showed.",
     count: (text) => countMatches(text, /\b(?:seemed to|felt a (?:pulse|twinge|chill|surge|wave)|sensed (?:a|the)|was (?:afraid|terrified|furious|relieved|overwhelmed)|a flicker of|something in (?:his|her|their) (?:eyes|voice|chest))\b/gi),
@@ -205,23 +231,21 @@ export const PROSE_TICS = [
   {
     id: "uniformBlocks",
     priority: 42,
-    threshold: 1,
+    keep: 62,
+    threshold: 2,
     structural: true,
     note: "Vary paragraph lengths: sharp lines for pivotal beats, expansive passages for immersion. The last replies ran at one uniform length.",
     count: (_text, replies) => {
-      // The newest replies, matching the note and every other detector here.
-      // This read the *oldest* three of the analysis window, so the correction
-      // it produced described replies the model had already moved past and the
-      // note said "the last replies" about text that was no longer last.
+      let streak = 0;
       for (const reply of replies.slice(-3)) {
         const lengths = reply.split(/\n{2,}/).map((p) => countWords(p)).filter((n) => n > 0);
         if (lengths.length < 3) continue;
         const mean = lengths.reduce((a, b) => a + b, 0) / lengths.length;
         if (mean <= 0) continue;
         const spread = Math.sqrt(lengths.reduce((a, b) => a + (b - mean) ** 2, 0) / lengths.length) / mean;
-        if (spread < 0.3) return 1;
+        if (spread < 0.3) streak += 1;
       }
-      return 0;
+      return streak;
     },
   },
 ];
@@ -243,6 +267,8 @@ export const SLOP_LEXICON = [
 ];
 /**
  * Counts recurring 3-gram and 4-gram phrase echoes across turns in any language/script.
+ * Overlapping 3-gram slices of an already-counted repeated 4-gram are suppressed so a
+ * single 4-word name or title never triple-counts into a cluster.
  */
 export function countCrossTurnNgramEchoes(replies = []) {
   if (!Array.isArray(replies) || replies.length < 2) return 0;
@@ -258,10 +284,19 @@ export function countCrossTurnNgramEchoes(replies = []) {
         if (seg.isWordLike) tokens.push(seg.segment);
       }
     } else {
-      const m = narr.match(/[\p{L}\p{N}]+/gu);
-      if (m) tokens.push(...m);
+      const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+      const chunks = narr.match(/[\p{L}\p{N}]+/gu) || [];
+      for (const chunk of chunks) {
+        if (CJK_RE.test(chunk) && chunk.length > 2) {
+          for (let i = 0; i < chunk.length - 1; i += 1) {
+            tokens.push(chunk.slice(i, i + 2));
+          }
+        } else {
+          tokens.push(chunk);
+        }
+      }
     }
-    if (tokens.length < 4) continue;
+    if (tokens.length < 3) continue;
 
     const seenFourInTurn = new Set();
     for (let i = 0; i <= tokens.length - 4; i++) {
@@ -285,13 +320,19 @@ export function countCrossTurnNgramEchoes(replies = []) {
   }
 
   let repeatedClusters = 0;
+  const coveredThreeGrams = new Set();
   for (const [gram, count] of fourGramTurnCounts.entries()) {
     if (count >= 3 || (count >= 2 && gram.length >= 16)) {
       repeatedClusters += count - 1;
+      const parts = gram.split(" ");
+      if (parts.length === 4) {
+        coveredThreeGrams.add(`${parts[0]} ${parts[1]} ${parts[2]}`);
+        coveredThreeGrams.add(`${parts[1]} ${parts[2]} ${parts[3]}`);
+      }
     }
   }
-  for (const count of phraseTurnCounts.values()) {
-    if (count >= 3) repeatedClusters += count - 1;
+  for (const [gram, count] of phraseTurnCounts.entries()) {
+    if (count >= 3 && !coveredThreeGrams.has(gram)) repeatedClusters += count - 1;
   }
   return repeatedClusters;
 }
@@ -304,10 +345,12 @@ const SLOP_RE = new RegExp(
 );
 
 const EN_FUNCTION_WORDS_RE =
-  /\b(?:the|and|that|with|from|into|through|their|would|could|should|about|before|after|between|without|against|toward|towards|around|behind|beneath|across)\b/gi;
+  /\b(?:the|and|that|with|from|into|through|their|would|could|should|about|before|after|between|without|against|toward|towards|around|behind|beneath|across|is|was|are|were|have|has|had|not|but|you|your|she|her|he|him|his|they|them|this|these|those|who|what|where|when|while|which|did|does|will|can|been|being|over|under|back|down|then|than|here|there)\b/gi;
 
 const NON_EN_LATIN_MARKERS_RE =
-  /\b(?:yang|dengan|tidak|untuk|dalam|adalah|sudah|karena|seperti|namun|bahwa|mereka|kita|kamu|aku|dia|dari|pada|atau|tapi|saja|bisa|akan|para|como|pero|más|esta|este|entre|hacia|desde|dans|avec|pour|mais|comme|cette|nicht|sich|auch|und|oder|durch|über|nach|değil|için|gibi|daha|những|trong|được|không)\b/gi;
+  /\b(?:yang|dengan|tidak|untuk|dalam|adalah|sudah|karena|seperti|namun|bahwa|mereka|kita|kamu|aku|dia|dari|pada|atau|tapi|saja|bisa|akan|juga|hanya|tetapi|bukan|saat|lalu|sambil|ia|como|pero|más|esta|este|entre|hacia|desde|cuando|donde|quien|también|había|estaba|dijo|ella|porque|aunque|mientras|dans|avec|pour|mais|comme|cette|nous|vous|sans|sous|chez|très|était|avait|alors|donc|après|avant|nicht|sich|auch|und|oder|durch|über|nach|dass|weil|wenn|aber|doch|noch|schon|sehr|wieder|gegen|unter|zwischen|hatte|sagte|ihre|seine|perché|però|anche|questa|questo|quella|quello|nella|dalla|della|sulla|sempre|mentre|aveva|disse|molto|tutto|não|você|vocês|embora|ainda|agora|então|muito|através|estava|olhou|niet|maar|ook|naar|voor|onder|tussen|omdat|terwijl|wanneer|altijd|nooit|zich|deze|mijn|nie|się|że|jest|był|była|oraz|przez|przed|między|więc|bardzo|tylko|gdzie|kiedy|dlaczego|wszystko|jeszcze|ang|mga|hindi|siya|niya|ako|ikaw|kami|tayo|sila|naman|dahil|habang|kapag|dito|doon|walang|meron|değil|için|gibi|daha|olan|olarak|ancak|fakat|çünkü|những|trong|được|không|của|với|nhưng|rằng)\b/gi;
+
+const LANG_SAMPLE_CHARS = 4096;
 
 /**
  * Checks if Latin-script text has English morphology and function-word distribution,
@@ -315,12 +358,13 @@ const NON_EN_LATIN_MARKERS_RE =
  */
 export function isLikelyEnglish(text) {
   if (!text || typeof text !== "string") return false;
-  if (latinShare(text) < 0.6) return false;
-  const enHits = (text.match(EN_FUNCTION_WORDS_RE) || []).length;
-  const nonEnHits = (text.match(NON_EN_LATIN_MARKERS_RE) || []).length;
+  const sample = text.length > LANG_SAMPLE_CHARS ? text.slice(0, LANG_SAMPLE_CHARS) : text;
+  if (latinShare(sample) < 0.6) return false;
+  const enHits = countMatches(sample, EN_FUNCTION_WORDS_RE);
+  const nonEnHits = countMatches(sample, NON_EN_LATIN_MARKERS_RE);
   if (nonEnHits > enHits) return false;
-  const words = countWords(text);
-  if (words < 8) return true; // Short sample in Latin script retains default analysis
+  const words = countWords(sample);
+  if (words < 8) return enHits > 0 && nonEnHits === 0;
   return enHits / Math.max(1, words) >= 0.02;
 }
 
@@ -333,12 +377,41 @@ export function isNonEnglishText(text) {
   if (!text || typeof text !== "string") return false;
   const cleaned = text.trim();
   if (!cleaned) return false;
-  const letters = cleaned.match(/\p{L}/gu) || [];
-  if (letters.length === 0) return false;
-  if (latinShare(cleaned) < 0.6) return true;
-  const enHits = countMatches(cleaned, EN_FUNCTION_WORDS_RE);
-  const nonEnHits = countMatches(cleaned, NON_EN_LATIN_MARKERS_RE);
+  const sample = cleaned.length > LANG_SAMPLE_CHARS ? cleaned.slice(0, LANG_SAMPLE_CHARS) : cleaned;
+  if (!/\p{L}/u.test(sample)) return false;
+  if (latinShare(sample) < 0.6) return true;
+  const enHits = countMatches(sample, EN_FUNCTION_WORDS_RE);
+  const nonEnHits = countMatches(sample, NON_EN_LATIN_MARKERS_RE);
   return nonEnHits > 0 && nonEnHits > enHits;
+}
+
+/**
+ * Classifies text into a coarse script/language family ("latin-en", "latin-non-en",
+ * "cjk", "cyrillic", "arabic", "devanagari", "other-non-latin"), or null when unknown.
+ */
+export function detectLanguageProfile(text) {
+  if (!text || typeof text !== "string") return null;
+  const cleaned = text.trim();
+  if (!cleaned) return null;
+  const sample = cleaned.length > LANG_SAMPLE_CHARS ? cleaned.slice(0, LANG_SAMPLE_CHARS) : cleaned;
+  if (!/\p{L}/u.test(sample)) return null;
+  if (latinShare(sample) < 0.6) {
+    if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(sample)) return "cjk";
+    if (/\p{Script=Cyrillic}/u.test(sample)) return "cyrillic";
+    if (/\p{Script=Arabic}/u.test(sample)) return "arabic";
+    if (/\p{Script=Devanagari}/u.test(sample)) return "devanagari";
+    return "other-non-latin";
+  }
+  const enHits = countMatches(sample, EN_FUNCTION_WORDS_RE);
+  const nonEnHits = countMatches(sample, NON_EN_LATIN_MARKERS_RE);
+  if (nonEnHits > 0 && nonEnHits > enHits) return "latin-non-en";
+  if (enHits === 0 && nonEnHits === 0 && /[áéíóúüñ¿¡àèòìâêîôûçãõşğıłżźąęćńśđơư]/iu.test(sample)) {
+    return "latin-non-en";
+  }
+  if (nonEnHits > enHits) return null;
+  const words = countWords(sample);
+  if (words < 8) return enHits > 0 && nonEnHits === 0 ? "latin-en" : null;
+  return enHits / Math.max(1, words) >= 0.02 ? "latin-en" : null;
 }
 
 /**
@@ -462,10 +535,15 @@ export function analyzeTurnState({
 
   const present = new Set();
   if (castNames.length > 0 && recent) {
-    const lower = recent.toLowerCase();
+    const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
     for (const name of castNames) {
-      const clean = String(name || "").trim().toLowerCase();
-      if (clean && lower.includes(clean)) present.add(clean);
+      const clean = String(name || "").trim();
+      if (!clean) continue;
+      const escaped = clean.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const re = CJK_RE.test(clean)
+        ? new RegExp(escaped, "iu")
+        : new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu");
+      if (re.test(recent)) present.add(clean.toLowerCase());
     }
   }
   const absentCast = castNames
@@ -473,20 +551,18 @@ export function analyzeTurnState({
     .filter((name) => name && !present.has(name.toLowerCase()))
     .slice(0, 4);
 
-  // Whether the English lexical detectors can read the text at all. This is a
-  // *script* test, not a language test: the engine names no language and
-  // special-cases none. Latin script is the condition the English pattern list
-  // needs, and it is true of every Latin-script language — which is the honest
-  // limit of an English pattern list, not a claim about which language the
-  // story is in. The structural detectors below are unaffected either way.
+  const recentNarration = replies.slice(-3).map(narrationOnly).filter(Boolean).join("\n");
   const latinScript = latinShare(recent) >= 0.6;
   const userTurns = list.filter((m) => m.role === "user");
   const replyWords = replies.map(countWords);
   const sortedWords = replyWords.slice().sort((a, b) => a - b);
   const lastUserTurn = userTurns.length ? String(userTurns[userTurns.length - 1].content || "") : "";
   const playerWords = countWords(lastUserTurn);
+  const sortedUserWords = userTurns.slice(-3).map((m) => countWords(String(m.content || ""))).sort((a, b) => a - b);
+  const medianPlayerWords = sortedUserWords.length ? sortedUserWords[Math.floor(sortedUserWords.length / 2)] : 0;
   const ticContext = {
     playerWords,
+    medianPlayerWords,
     medianReplyWords: sortedWords.length ? sortedWords[Math.floor(sortedWords.length / 2)] : 0,
   };
   const nonEnLatin =
@@ -496,28 +572,37 @@ export function analyzeTurnState({
     for (const tic of PROSE_TICS) {
       if (!tic.structural && !tic.multilingual && (!latinScript || nonEnLatin)) continue;
       if (tic.multilingual && !latinScript) continue;
-      const hits = tic.count(recent, replies, ticContext);
+      const scanTarget = tic.structural ? recent : recentNarration;
+      const hits = tic.count(scanTarget, replies, ticContext);
       if (hits >= tic.threshold) {
         tics.push({ id: tic.id, priority: tic.priority, keep: tic.keep ?? tic.priority, note: tic.note, hits });
       }
     }
   }
 
-  // Cross-lingual shift detection: fires when the user's turn, User Persona,
-  // System Directives, or the preset's scene are written in a non-English
-  // language while the latest assistant message in the transcript (or an absent
-  // opening turn) is still in English. Once the assistant replies in the
-  // non-English language, `isLikelyEnglish(latestReply)` becomes false and the
-  // extra reminder turns off automatically.
-  const hasNonEnglishAuthority =
-    isNonEnglishText(lastUserTurn) ||
-    isNonEnglishText(personaText) ||
-    isNonEnglishText(contractText) ||
-    isNonEnglishText(cardText);
+  // Authority-ordered cross-lingual shift detection: an explicit user turn
+  // governs; empty/punctuation user turns ("...") fall back to Persona ->
+  // Directives -> Card. Compares script/language profile against latestReply so
+  // English->non-English, non-English->different non-English, and English user
+  // on foreign card all behave accurately.
+  const userLang = detectLanguageProfile(lastUserTurn);
+  let activeAuthority = userLang;
+  if (!activeAuthority) {
+    const candidates = [
+      detectLanguageProfile(personaText),
+      detectLanguageProfile(contractText),
+      detectLanguageProfile(cardText),
+    ].filter(Boolean);
+    activeAuthority = candidates.find((c) => c !== "latin-en") || candidates[0] || null;
+  }
   const latestReply = replies.length ? replies[replies.length - 1] : "";
-  const crossLingual = Boolean(
-    hasNonEnglishAuthority && (!latestReply || isLikelyEnglish(latestReply))
-  );
+  const replyLang = detectLanguageProfile(latestReply);
+  let crossLingual = false;
+  if (activeAuthority && activeAuthority !== "latin-en") {
+    crossLingual = !latestReply || Boolean(replyLang && replyLang !== activeAuthority);
+  } else if (activeAuthority === "latin-en") {
+    crossLingual = Boolean(latestReply && replyLang && replyLang !== "latin-en");
+  }
 
   return {
     assistantTurns: assistant.length,
@@ -525,7 +610,9 @@ export function analyzeTurnState({
     replyWords,
     latestReplyWords: replyWords.length ? replyWords[replyWords.length - 1] : 0,
     latinScript,
-    slopHits: latinScript && isLikelyEnglish(recent) ? countMatches(recent, SLOP_RE) : countCrossTurnNgramEchoes(replies),
+    slopHits: latinScript && isLikelyEnglish(recentNarration || recent)
+      ? countMatches(recentNarration, SLOP_RE)
+      : countCrossTurnNgramEchoes(replies),
     tics,
     narration: detectNarration(list),
     puppetBleed,
@@ -654,7 +741,7 @@ export function buildSceneGuidance(signals, { maxTokens = GUIDANCE_MAX_TOKENS, i
   // from the state, which is allowed to have moved — the same distinction the
   // ledger's Cast entries carry.
   const dueForReinject = s.assistantTurns > 0 && s.assistantTurns % REINJECT_EVERY_TURNS === 0;
-  if (identity && (dueForReinject || s.folded)) add("reinject", 83, `- Persona anchor: ${who}'s core is unchanged — ${identity}. Their state has moved; let what happened show in how they carry themselves, as the same person the story has shaped.`);
+  if (identity && (dueForReinject || s.folded)) add("reinject", 60, `- Persona anchor: ${who}'s core is unchanged — ${identity}. Their state has moved; let what happened show in how they carry themselves, as the same person the story has shaped.`);
 
   const { pov, tense } = s.narration || {};
   if ((pov || tense) && s.assistantTurns >= 2) {
@@ -664,26 +751,20 @@ export function buildSceneGuidance(signals, { maxTokens = GUIDANCE_MAX_TOKENS, i
     ].filter(Boolean);
     add(
       "lock",
-      85,
+      58,
       `- Narrative lock: the scene runs in ${bits.join(", ")}. Keep it, and keep the same separation between narration and speech.`
     );
   }
 
-  // Prose corrections, least urgent first, so the most urgent one sits last —
-  // nearest the generation head, where recency weight is greatest. They are the
-  // measured behavior-specific tier: the correction names what the model is
-  // doing, so it can stop doing it, and the measured gain for this tier is
-  // several times the gain for a generic reminder. Emitting them *after* the
-  // anchors above is what makes that gain reach the position it was measured
-  // at; the reverse order left the lock — the generic tier — as the last thing
-  // the model read on every turn a correction fired.
+  // Prose corrections follow anchors in ascending priority (highest recency
+  // weight last) and outrank generic anchors under tight `keep` trimming.
   const corrections = (s.tics || []).slice().sort((a, b) => a.priority - b.priority);
   if ((s.absentCast || []).length >= 2 && !s.folded) {
     corrections.push({
       id: "silentCast",
       priority: 30,
       keep: 30,
-      note: `- ${s.absentCast.join(", ")} ${s.absentCast.length === 1 ? "is" : "are"} present but silent. Give them a reaction, or let them leave.`,
+      note: `- ${s.absentCast.join(", ")} are present but silent. Give them a reaction, or let them leave.`,
     });
   }
   // The lexicon is a cluster, never a word: a correction that recited the
@@ -692,7 +773,7 @@ export function buildSceneGuidance(signals, { maxTokens = GUIDANCE_MAX_TOKENS, i
     corrections.push({
       id: "slopLexicon",
       priority: 62,
-      keep: 62,
+      keep: 82,
       note: "- Stock phrasing is clustering. Reach past it: the specific object, the gesture, the word this character would actually use.",
     });
   }

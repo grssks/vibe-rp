@@ -472,9 +472,9 @@ describe("one renderer for user-authored inline fields", () => {
   });
 
   test("both the section builder and the choice task line render through it", () => {
-    const engine = fs.readFileSync(path.join(publicDir, "browser_engine.js"), "utf8");
+    const promptBuilder = fs.readFileSync(path.join(publicDir, "prompt_builder.js"), "utf8");
     const choice = fs.readFileSync(path.join(publicDir, "choice_format.js"), "utf8");
-    expect(engine).toMatch(/renderInlineField/);
+    expect(promptBuilder).toMatch(/renderInlineField/);
     expect(choice).toMatch(/renderInlineField/);
   });
 });

@@ -1347,7 +1347,7 @@ describe("the ledger carries character development, not just facts", () => {
         },
       },
     };
-    const settings = { apiEndpoint: "https://x.test/v1", model: "m", maxContextTokens: 2048, maxTokens: 256 };
+    const settings = { apiEndpoint: "https://x.test/v1", model: "m", maxContextTokens: 4096, maxTokens: 1800 };
     const session = {
       messages: [
         { role: "assistant", content: "The gate opens." },

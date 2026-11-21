@@ -414,9 +414,13 @@ describe("planChoiceRequest", () => {
 
     expect(shared.sharedPrefix).toBe(true);
     // The system message is the main one, byte for byte — that is the whole
-    // point, and what a provider's prefix cache matches on.
+    // point, and what a provider's prefix cache matches on. Trailing synthetic
+    // RP `[Writing Guidance:` is stripped so the choice request has no RP tail
+    // rules or consecutive user messages.
     expect(shared.payload[0].content).toBe(main.payload[0].content);
-    expect(shared.payload.length).toBe(main.payload.length + 1);
+    expect(shared.payload.some((m: { content: string }) => m.content.startsWith("[Writing Guidance:"))).toBe(false);
+    expect(shared.payload.at(-2)?.role).toBe("assistant");
+    expect(shared.payload.at(-1)?.role).toBe("user");
     expect(shared.payload.at(-1)?.content).toContain("Propose the next moves");
 
     // A preset whose required sections cannot fit the window: the menu keeps the
@@ -770,30 +774,20 @@ describe("stripThoughtBlocks and cleanPromptText", () => {
 });
 
 describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
-  test("CHOICE_SYSTEM_PROMPT establishes the full operational contract (language lock, craft, precedence)", () => {
-    // Language lock, perspective, agency and dramatic divergence.
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Language Lock");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Narrative Perspective");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Dramatic Divergence & Emotional Stakes");
+  test("CHOICE_SYSTEM_PROMPT establishes the compressed operational contract (language lock, craft, precedence)", () => {
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Perspective & Language");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Dramatic Divergence & Craft");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Spoken Dialogue with Voice");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Visceral Instinct & Impulse");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Guarded Subtext & Restraint");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Vulnerability & Personal Stakes");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Each choice names what the player attempts in the immediate beat");
-    // Scene craft: beats, subtext, anti-echo.
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Scene Beats & Physical Grounding");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Subtext over Exposition");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Anti-Echo Rule");
-    // Operational precedence for mismatched presets.
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Language Lock & Register Adaptation");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("active operational authority");
-    // The requirement, not the wording: the choice model follows the scene's
-    // active language rather than the preset's. Stated positively, like the
-    // rest of the prompt.
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Every choice names only what the player attempts in the immediate beat");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("subtext over exposition");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("rather than echoing the prior line");
     expect(CHOICE_SYSTEM_PROMPT).toContain("rather than the preset's source language");
-    // The task line is deliberately lean. Language precedence lives in the
-    // system prompt, which travels in the same request; asserting it here too
-    // would re-create the duplication this separation removed.
+    expect(CHOICE_SYSTEM_PROMPT).not.toContain("\n\nAgency\n");
+    expect(CHOICE_SYSTEM_PROMPT).not.toContain("Freya");
+    expect(CHOICE_SYSTEM_PROMPT).not.toContain("Alexis");
     const promptText = choicePrompt(4, { charName: "Vance", playerName: "Rowan" });
     expect(promptText).toContain("Provide 4 choices");
     expect(promptText).not.toContain("Card Reading");
@@ -888,7 +882,7 @@ describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
     expect(userPromptMsg.role).toBe("user");
     // The task line carries the ask; the instructions travel with it, once.
     expect(userPromptMsg.content).toContain("Propose the next moves for [Rowan] in the scene above, opposite [Vance].");
-    expect(userPromptMsg.content).toContain("Language Lock & Register Adaptation");
+    expect(userPromptMsg.content).toContain("Perspective & Language");
     expect(userPromptMsg.content).not.toContain("Directives: Use a clipped");
   });
 
@@ -921,21 +915,15 @@ describe("Universal & Adaptive Choice Mode Prompt Contract", () => {
   test("CHOICE_SYSTEM_PROMPT and choicePrompt mandate agency, physical reality and independent counterpart agency", () => {
     expect(CHOICE_SYSTEM_PROMPT).toContain("Player Agency vs. Scene Progression");
     expect(CHOICE_SYSTEM_PROMPT).toContain("Physical Reality & Narrative Agency");
-    // The condition gate is stated as what the state permits, not as a ban:
-    // outcome-first phrasing, same requirement.
-    expect(CHOICE_SYSTEM_PROMPT).toContain("What they can do follows from that state");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("every condition takes time to change");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Independent Counterpart Agency");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Plausible Recovery");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Observational Perspective Shifts");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("watching events unfold");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("physical state constrains plausible action");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("takes time to change");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("Observational Cutaways & Independent Agency");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("plausibly resolves");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("independent reactions");
 
     const p = choicePrompt(4, { charName: "Vance", playerName: "Rowan" });
-    // Agency is stated once, in the system prompt — not restated in the task
-    // line, which travels in the same request.
     expect(p).not.toContain("Agency & Scene State");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Restrained or Incapacitated State");
-    expect(CHOICE_SYSTEM_PROMPT).toContain("Independent Counterpart Agency");
+    expect(CHOICE_SYSTEM_PROMPT).toContain("movement or speech is blocked");
   });
 
   test("parseChoices parses optional type and pov fields for cutaways and observational options", () => {

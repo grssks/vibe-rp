@@ -8,7 +8,7 @@
 // Choice Mode changes how the reader picks the next turn. It never changes how
 // the conversation is stored: a selected choice is an ordinary user message.
 
-import { stripThoughtBlocks, renderInlineField, neutralizeDelimiters } from "./text.js";
+import { stripThoughtBlocks, renderInlineField, neutralizeDelimiters, INVISIBLE_RE } from "./text.js";
 
 // A choice is one line the reader can scan. Beyond this it stops being a menu
 // item and becomes a paragraph, so the parser rejects rather than truncates.
@@ -19,11 +19,6 @@ export const CHOICE_COUNT_MIN = 3;
 export const CHOICE_COUNT_MAX = 5;
 export const CHOICE_COUNT_DEFAULT = 4;
 
-// Control, zero-width and bidi-override characters. They render as nothing, so
-// they can hide text from a reader while the model still "sees" it, and bidi
-// overrides can reverse the displayed order of a choice. Stripped, not escaped:
-// a choice has no legitimate use for them.
-const INVISIBLE_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
 // A leading list marker the model may add despite being told not to: "- ", "* ",
 // "1. ", "1) ", "[1] ", "(1) ", "• ". The bracketed and punctuated forms are
 // separate alternatives so "2 apples" is left alone (no bare-number marker).
@@ -108,34 +103,22 @@ function isWrappedBy(text, open, close) {
 // by choicePrompt(), so the weak-model path is preserved without taxing the
 // strong one.
 export const CHOICE_SYSTEM_PROMPT =
-  "You propose the player's next moves at the current beat of an ongoing roleplay scene, written from the player's perspective (or the narrator's when they cannot act).\n\n" +
+  "You propose the player's next moves at the current beat of an ongoing roleplay scene, from the player's POV (or narrator's when unable to act).\n\n" +
   "Physical Reality & Narrative Agency\n" +
-  "Read the player's physical state first: injury, consciousness, restraint, presence, and surroundings. What they can do follows from that state, and every condition takes time to change.\n" +
-  "  * Player Agency vs. Scene Progression: while the player can act, propose player actions; when action is impossible, propose the scene advancing around them through passing time, sensory shifts, or environmental developments, keeping continuation distinct from action.\n" +
-  "  * Observational Perspective Shifts: when dramatic rhythm benefits from shifting focus to another character, location, or time jump, frame the choice as watching events unfold from the outside, keeping other characters' agency independent.\n" +
-  "  * Restrained or Incapacitated State: when physical movement is blocked or minimal, draw on internal resolve, strained breath, endurance, sensory awareness, or quiet observation before reaching for physical action.\n" +
-  "  * Plausible Recovery: when a condition changes and action becomes possible again (waking, bonds cut), return to player actions; at a permanent end, acknowledge the conclusion.\n" +
-  "  * Independent Counterpart Agency: other characters keep their own independent reactions, answers, and motivations; each choice initiates the player's attempt, leaving others' responses and consequences unwritten.\n\n" +
-  "Agency\n" +
-  "Each choice names what the player attempts in the immediate beat, leaving outcomes, other characters' responses, and subsequent consequences unwritten.\n\n" +
-  "Dramatic Divergence & Emotional Stakes\n" +
-  "Provide contrasting dramatic paths rooted in distinct human impulses and emotional stakes:\n" +
-  "  * Spoken Dialogue with Voice: include direct dialogue in quotation marks, capturing the character's authentic cadence, tone, emotional bite, or hesitation.\n" +
-  "  * Visceral Instinct & Impulse: sudden adrenaline, gut reactions, bold physical commitments, fight-or-flight surges, or risky gambits.\n" +
-  "  * Guarded Subtext & Restraint: quiet tension, poker faces, tactical stillness, testing boundaries, or holding back unspoken truth.\n" +
-  "  * Vulnerability & Personal Stakes: dropping defenses, admitting hard truths, physical tenderness, emotional exposure, or unexpected intimacy.\n" +
-  "  * Lateral Shifts: altering the dynamic through the environment, shifting leverage, or seizing an overlooked detail.\n\n" +
-  "Craft\n" +
-  "  * Scene Beats & Physical Grounding: concrete action, posture, involuntary bodily tells (a tight jaw, shallow breath, averted eyes, unsteady hands), and sensory details.\n" +
-  "  * Subtext over Exposition: let silence, implication, and emotional pressure carry the moment rather than explaining intentions.\n" +
-  "  * Anti-Echo Rule: advance the scene into the next beat rather than restating what the other character just said.\n\n" +
-  "Narrative Perspective\n" +
-  "Match the player's point of view (\"I\" or third person), speech cadence, traits, and hesitations; phrase cutaways as observing the moment unfold from the outside.\n\n" +
-  "Language Lock & Register Adaptation\n" +
-  "The User Persona, Directives, and player dialogue are the active operational authority for language and register. Write every choice in the active language established by the player's turns, custom Persona/Directives, or the scene rather than the preset's source language when they differ.\n\n" +
-  "Output\n" +
-  "Return only this JSON (with label and text in that active language):\n" +
-  '  {"choices":[{"label":"Confront directly","text":"Step into the lamplight with hands held empty and voice level: \\"Tell me who gave you that name, and we can both walk away.\\"","type":"action","pov":"player"},{"label":"Hold the silence","text":"Stay still against the damp brickwork, eyes tracking the glint of steel in their grip as breath steadies in your chest.","type":"action","pov":"player"},{"label":"Watch from shadows","text":"From the fire escape above, Freya slides the bolt into place while Alexis checks the street corners below.","type":"cutaway","pov":"Freya"}]}';
+  "Assess injury, consciousness, restraint, presence, and surroundings first — physical state constrains plausible action and takes time to change.\n" +
+  "- Player Agency vs. Scene Progression: offer player moves while active; when movement or speech is blocked, draw on inner resolve, breath, observation, or external shifts passing time. Once a state plausibly resolves (waking, freed), return to player action; acknowledge permanent endings.\n" +
+  "- Observational Cutaways & Independent Agency: use external cutaway beats for outside characters, locations, or time jumps. Every choice names only what the player attempts in the immediate beat, leaving outcomes and others' independent reactions unwritten.\n\n" +
+  "Dramatic Divergence & Craft\n" +
+  "Contrast distinct impulses in concrete posture, involuntary tells, sensory detail, and subtext over exposition, advancing past the beat rather than echoing the prior line:\n" +
+  "- Spoken Dialogue with Voice: quoted lines capturing cadence, tone, or hesitation.\n" +
+  "- Visceral Instinct & Impulse: adrenaline, gut reactions, physical commitment, or risk.\n" +
+  "- Guarded Subtext & Restraint: poker faces, stillness, testing boundaries, or concealment.\n" +
+  "- Vulnerability & Personal Stakes: lowered defenses, hard truths, tenderness, or exposure.\n" +
+  "- Lateral Shifts: changing leverage via surroundings or overlooked details.\n\n" +
+  "Perspective & Language\n" +
+  "Match the player's POV, cadence, and active language of turns, custom Persona, Directives, or scene rather than the preset's source language.\n\n" +
+  "Output (valid JSON only, in that active language):\n" +
+  '{"choices":[{"label":"3-7 word intent","text":"action, spoken quote, or beat","type":"action|cutaway|continuation|story","pov":"player|<name>|scene"}]}';
 
 // Appended only when the model has no native reasoning step to lean on. Kept
 // short and explicitly silent: it asks for the thinking to happen, not to be
@@ -204,11 +187,11 @@ export function choicePrompt(count = CHOICE_COUNT_DEFAULT, { charName = "the cha
   // redundancy the contract work removed everywhere else.
   return (
     `Propose the next moves for [${safePlayer}] in the scene above, opposite [${safeChar}]. ` +
-    `Provide ${target} choices from [${safePlayer}]'s perspective (or the narrator's if they cannot act):\n` +
-    `- "label": 3 to 7 word intent (under ${CHOICE_LABEL_MAX_CHARS} chars) in [${safePlayer}]'s active language.\n` +
-    `- "text": in-character action, dialogue, or observed beat (under ${CHOICE_TEXT_MAX_CHARS} chars) in [${safePlayer}]'s active language and POV.\n` +
+    `Provide ${target} choices from [${safePlayer}]'s POV (or the narrator's if unable to act):\n` +
+    `- "label": 3-7 word intent (<${CHOICE_LABEL_MAX_CHARS} chars).\n` +
+    `- "text": in-character action, dialogue, or observed beat (<${CHOICE_TEXT_MAX_CHARS} chars).\n` +
     `- "type": "action", "cutaway", "continuation", or "story" (optional).\n` +
-    `- "pov": "player", observed character name, or "scene" (optional).` +
+    `- "pov": "player", observed name, or "scene" (optional).` +
     freshVariationHint +
     (deliberate ? CHOICE_DELIBERATION_HINT : "")
   );
@@ -264,17 +247,85 @@ function dedupeKey(text) {
  * blocks first and scanning balanced JSON slices so preliminary metadata
  * or thought objects (e.g. {"thought": "..."}) do not preempt the real choices.
  */
+function stripJsonJunk(raw) {
+  let out = "";
+  let inString = false;
+  let quote = '"';
+  let escaped = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (inString) {
+      if (escaped) {
+        if (quote === '"' && ch === "'") {
+          out += "'";
+        } else {
+          out += "\\" + ch;
+        }
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === quote) inString = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      quote = '"';
+      out += ch;
+      continue;
+    }
+    if (ch === "/" && raw[i + 1] === "/") {
+      const nl = raw.indexOf("\n", i + 2);
+      if (nl === -1) break;
+      i = nl - 1;
+      continue;
+    }
+    if (ch === "/" && raw[i + 1] === "*") {
+      const end = raw.indexOf("*/", i + 2);
+      if (end === -1) break;
+      i = end + 1;
+      continue;
+    }
+    out += ch;
+  }
+  // Remove trailing commas only outside strings
+  let finalOut = "";
+  inString = false;
+  escaped = false;
+  for (let i = 0; i < out.length; i += 1) {
+    const ch = out[i];
+    if (inString) {
+      finalOut += ch;
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      finalOut += ch;
+      continue;
+    }
+    if (ch === ",") {
+      let j = i + 1;
+      while (j < out.length && /\s/.test(out[j])) j += 1;
+      if (out[j] === "}" || out[j] === "]") continue;
+    }
+    finalOut += ch;
+  }
+  return finalOut;
+}
+
 function safeJsonParse(raw) {
   try {
     return JSON.parse(raw);
   } catch {}
   try {
-    const cleaned = raw
-      .replace(/\\'/g, "'")
-      .replace(/,\s*([}\]])/g, "$1")
-      .replace(/(^|[^\\:])\/\/[^\n]*/g, "$1")
-      .replace(/\/\*[\s\S]*?\*\//g, "");
-    return JSON.parse(cleaned);
+    return JSON.parse(stripJsonJunk(raw));
   } catch {}
   return null;
 }
@@ -318,7 +369,7 @@ function findValidChoiceList(text) {
           const parsed = safeJsonParse(slice);
           const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.choices) ? parsed.choices : null;
           if (list && list.length > 0) return list;
-          if (parsed && typeof parsed === "object" && (parsed.text || parsed.action || parsed.choice || parsed.label)) {
+          if (parsed && typeof parsed === "object" && (parsed.text || parsed.action || parsed.choice || parsed.label || parsed.detail || parsed.value || parsed.title || parsed.summary || parsed.tldr)) {
             collectedObjects.push(parsed);
           }
           i = j + 1;
