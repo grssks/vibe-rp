@@ -45,8 +45,7 @@
 //   analyzeTurnState           the session signals (what is drifting, if anything)
 //   buildSceneGuidance         those signals as a compact instruction block
 //   detectNarration            POV/tense reading of the newest replies
-//   PROSE_TICS                 the named, checkable defect detectors
-//   SLOP_LEXICON               overused phrases (English, cluster-gated)
+//   PROSE_TICS                 language-agnostic structural defect detectors
 //   GUIDANCE_MAX_TOKENS        the ceiling the block is clamped to
 //   countCrossTurnNgramEchoes  cross-lingual phrase repetition cluster detector
 //   isLikelyEnglish            function-word distribution check for Latin text
@@ -123,47 +122,35 @@ export function countWords(text) {
 }
 
 /**
- * The named prose defects worth correcting, each with the smallest reliable
- * signature and the threshold at which a signature stops being style and starts
- * being a tic. Sources: NousResearch's anti-pattern reference (structural tics,
- * which word lists cannot see), the community slop lexicons, and EQ-Bench's
- * finding that the "not X, but Y" contrast is the single most-cited marker.
+ * Language-agnostic structural prose defect detectors.
  *
- * These are *constructions*, not adjectives. A model cannot act on "write with
- * more tension", but it can stop opening a beat with "not because X, but
- * because Y" — and the fix is checkable on read-through.
+ * Lexical phrase lists cannot cover every language or cliché, and naming
+ * forbidden idioms in a prompt primes them. Instead, these detectors measure
+ * structural habits across any script or language (question streaks, reply
+ * collapse, uniform block cadence, and repetitive beat openings) while
+ * `countCrossTurnNgramEchoes` catches any repeating phrase cluster dynamically.
  */
-// Each note leads with the behaviour to write and follows with the diagnosis,
-// so the correction names what to do rather than only what to stop. The
-// detectors themselves are unchanged: what they count is a measured question,
-// and tools/prompt_eval.mjs is where that measurement happens.
+function openingSignature(reply) {
+  const clean = String(reply || "")
+    .replace(/^[\s"'“”‘’«»「『*_`#>-]+/u, "")
+    .toLowerCase();
+  if (!clean) return "";
+  const tokens = [];
+  if (wordSegmenter) {
+    for (const seg of wordSegmenter.segment(clean)) {
+      if (seg.isWordLike) {
+        tokens.push(seg.segment);
+        if (tokens.length >= 2) break;
+      }
+    }
+  } else {
+    const matches = clean.match(/[\p{L}\p{N}]+/gu) || [];
+    tokens.push(...matches.slice(0, 2));
+  }
+  return tokens.length >= 2 ? `${tokens[0]} ${tokens[1]}` : tokens[0] || "";
+}
+
 export const PROSE_TICS = [
-  {
-    id: "contrast",
-    priority: 70,
-    keep: 88,
-    threshold: 2,
-    multilingual: true,
-    note: 'State the true thing once. The last replies leaned on the "not X, but Y" / "instead of X, Y" contrast.',
-    count: (text) =>
-      countMatches(
-        text,
-        /\b(?:not\s+(?:just\s+|only\s+|merely\s+|because\s+)?[^.!?\n]{2,60}?[,\u2014\u2013-]\s*(?:but|it'?s|they'?re|he'?s|she'?s|that'?s)|bukan(?:nya)?\s+(?:cuma\s+|hanya\s+|sekadar\s+|karena\s+)?[^.!?\n]{2,60}?[,\u2014\u2013-]\s*(?:melainkan|tetapi|tapi|justru)|alih-alih\s+[^,\n]{3,60},\s*|no\s+(?:solo\s+|sólo\s+|porque\s+)?[^.!?\n]{2,60}?,\s*sino|non\s+(?:pas\s+|seulement\s+)?[^.!?\n]{2,60}?,\s*mais|nicht\s+(?:nur\s+|weil\s+)?[^.!?\n]{2,60}?,\s*sondern)\b/gi
-      ),
-  },
-  {
-    id: "emotionMix",
-    priority: 66,
-    keep: 84,
-    threshold: 2,
-    multilingual: true,
-    note: 'Anchor conflicted feelings in concrete physical reactions. The last replies leaned on abstract emotional pairing ("a mix of dread and relief").',
-    count: (text) =>
-      countMatches(
-        text,
-        /(?:\b(?:a|the)\s+(?:mix|mixture|blend|combination|flood|wave)\s+of\s+\w+(?:\s+\w+)?\s+and\s+\w+\b|\b(?:campuran|perpaduan|bauran|gelombang)\s+(?:antara\s+)?[\p{L}-]+(?:\s+[\p{L}-]+)?\s+dan\s+[\p{L}-]+)/giu
-      ),
-  },
   {
     id: "askedThePlayer",
     priority: 68,
@@ -181,13 +168,33 @@ export const PROSE_TICS = [
     },
   },
   {
+    id: "openingRepeat",
+    priority: 64,
+    keep: 84,
+    threshold: 3,
+    structural: true,
+    note: "Vary how each beat opens: enter through a different action, sensory shift, or spoken line. The last replies opened on the same pattern.",
+    count: (_text, replies) => {
+      const recent = replies.slice(-4);
+      if (recent.length < 3) return 0;
+      const counts = new Map();
+      let max = 0;
+      for (const reply of recent) {
+        const sig = openingSignature(reply);
+        if (!sig) continue;
+        const next = (counts.get(sig) || 0) + 1;
+        counts.set(sig, next);
+        if (next > max) max = next;
+      }
+      return max;
+    },
+  },
+  {
     id: "shrank",
     priority: 60,
     keep: 80,
     threshold: 3,
     structural: true,
-    // A reply that is short is a choice. Three consecutive recent short replies
-    // while the player writes longer turns or the scene tapered off indicates decay.
     note: "Write into the momentum: physical presence, dialogue nuance, the immediate consequence of what just happened. The last replies are closing into brief exchanges.",
     count: (_text, replies, context = {}) => {
       const recent = replies.slice(-3);
@@ -200,58 +207,6 @@ export const PROSE_TICS = [
       const stubOutwritten = Math.max(...recentCounts) < 20 && (context.medianPlayerWords || 0) >= floor;
       return tapered || currentOutwritten || stubOutwritten ? recent.length : 0;
     },
-  },
-  {
-    id: "triads",
-    priority: 52,
-    keep: 61,
-    threshold: 2,
-    multilingual: true,
-    note: "Reach for one striking, concrete detail. The last replies leaned on three-item series.",
-    count: (text) =>
-      countMatches(
-        text,
-        /(?:^|[^\p{L}])(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3}),\s+(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3}),\s+(?:and|dan|serta)\s+(?:[\p{L}'-]+(?:\s+[\p{L}'-]+){0,3})(?![\p{L}])/giu
-      ),
-  },
-  {
-    id: "simileTic",
-    priority: 44,
-    keep: 64,
-    threshold: 5,
-    multilingual: true,
-    note: 'Trust the image on the page. The last replies kept reaching for "the way ..." similes.',
-    count: (text) =>
-      countMatches(
-        text,
-        /(?:\bthe way\s+(?:she|he|they|it|the|his|her|their|one)\b|\bseperti\s+cara(?:nya)?\s+(?:dia|ia|mereka|dirinya)\b|\bbagaikan\s+[\p{L}-]+\s+yang\b)/giu
-      ),
-  },
-  {
-    id: "negatedAction",
-    priority: 48,
-    keep: 66,
-    threshold: 7,
-    multilingual: true,
-    note: 'Show the action that did happen. The last replies leaned on "did not / would not" negations.',
-    count: (text) =>
-      countMatches(
-        text,
-        /\b(?:did not|didn'?t|does not|doesn'?t|had not|hadn'?t|would not|wouldn'?t|will not|won'?t|tidak\s+(?:akan|pernah|bisa|mau|lagi|langsung)|tak\s+(?:akan|pernah|bisa|mau|lagi|mampu)|belum\s+pernah)\b/gi
-      ),
-  },
-  {
-    id: "explainedTheBeat",
-    priority: 56,
-    keep: 76,
-    threshold: 3,
-    multilingual: true,
-    note: "Let the gesture, the silence, and the consequence land uninterpreted. The narration is explaining what the scene already showed.",
-    count: (text) =>
-      countMatches(
-        text,
-        /(?:\b(?:seemed to|felt a (?:pulse|twinge|chill|surge|wave)|sensed (?:a|the)|was (?:afraid|terrified|furious|relieved|overwhelmed)|a flicker of|something in (?:his|her|their) (?:eyes|voice|chest))\b|\bseolah(?:-olah)?\s+(?:sedang|ingin|hendak|bisa|tahu)\b|\bmerasakan\s+(?:gelombang|getaran|desiran|denyut|kilatan)\b|\bada\s+sesuatu\s+di\s+(?:mata|suara|dada|tatapan)(?:nya)?\b|\bkilatan\s+[\p{L}-]+\s+di\s+mata(?:nya)?\b)/giu
-      ),
   },
   {
     id: "uniformBlocks",
@@ -273,56 +228,6 @@ export const PROSE_TICS = [
       return streak;
     },
   },
-  {
-    id: "sycophancy",
-    priority: 72,
-    keep: 89,
-    threshold: 2,
-    structural: true,
-    note: "Hold the character's own priorities, friction, and self-interest. The last replies slipped into agreeable assistant phrasing.",
-    count: (text) =>
-      countMatches(
-        text,
-        /\b(?:of course,|certainly,|you'?re right\b|you are right\b|i completely understand|i'?d be happy to|happy to help|tentu saja,|kamu benar\b|kau benar\b|aku mengerti sepenuhnya|dengan senang hati|baiklah kalau begitu)\b/gi
-      ),
-  },
-  {
-    id: "openingEcho",
-    priority: 74,
-    keep: 90,
-    threshold: 2,
-    structural: true,
-    note: "Start directly inside the character's next motion or spoken line. The last replies opened by re-staging the player's action.",
-    count: (_text, replies) =>
-      replies
-        .slice(-3)
-        .filter((r) =>
-          /^(?:["'\u201C\u201D\u2018\u2019*_\s]*(?:(?:as|when|hearing|watching|seeing|upon)\s+(?:you|your)\b|(?:saat|ketika|mendengar|melihat|begitu)\s+(?:kamu|kau|anda)\b))/iu.test(
-            String(r || "").trim()
-          )
-        ).length,
-  },
-];
-
-/**
- * Overused phrases ("slop"), matched case-insensitively as whole words.
- * Confidence comes from clustering, never from a single hit: the community
- * measurement is explicit that one "murmured" is prose and five in a scene is a
- * fingerprint, and that a clean single reply is not evidence of anything.
- * The threshold is per analysis window, across every inspected reply.
- */
-export const SLOP_LEXICON = [
-  "shiver", "shivers", "shudder", "swallowed hard", "breath hitched", "breath caught",
-  "barely above a whisper", "barely a whisper", "husky", "purr", "purred", "chuckled darkly",
-  "sparkling with mischief", "half-lidded", "smirk", "smirked", "knuckles", "adam's apple",
-  "ministrations", "a testament to", "testament to", "little did", "unbeknownst",
-  "predatory", "down her spine", "down his spine", "heart hammered", "eyes never leaving",
-  "voice thick with", "dripping with", "a dance of", "chaos of emotions",
-  "menelan ludah", "napasnya tercekat", "napas tercekat", "suara serak", "berbisik serak",
-  "menyeringai tipis", "tulang punggungnya", "jantungnya berdegup", "buku-buku jarinya memutih",
-  "rahangnya mengeras", "tatapannya tak lepas", "desiran aneh",
-  "escaped her lips", "escaped his lips", "eyes widened", "gaze dropped", "gaze lingered",
-  "lolos dari bibirnya", "matanya melebar", "pandangannya jatuh",
 ];
 /**
  * Counts recurring 3-gram and 4-gram phrase echoes across turns in any language/script.
@@ -396,12 +301,8 @@ export function countCrossTurnNgramEchoes(replies = []) {
   return repeatedClusters;
 }
 
-/** Hits per window before the lexicon contributes a correction. */
+/** Hits per window before cross-turn phrase repetition contributes a correction. */
 export const SLOP_CLUSTER_THRESHOLD = 4;
-const SLOP_RE = new RegExp(
-  `\\b(?:${SLOP_LEXICON.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
-  "gi"
-);
 
 const EN_FUNCTION_WORDS_RE =
   /\b(?:the|and|that|with|from|into|through|their|would|could|should|about|before|after|between|without|against|toward|towards|around|behind|beneath|across|is|was|are|were|have|has|had|not|but|you|your|she|her|he|him|his|they|them|this|these|those|who|what|where|when|while|which|did|does|will|can|been|being|over|under|back|down|then|than|here|there)\b/gi;
@@ -624,13 +525,9 @@ export function analyzeTurnState({
     medianPlayerWords,
     medianReplyWords: sortedWords.length ? sortedWords[Math.floor(sortedWords.length / 2)] : 0,
   };
-  const nonEnLatin =
-    latinScript && countMatches(recent, NON_EN_LATIN_MARKERS_RE) > countMatches(recent, EN_FUNCTION_WORDS_RE);
   const tics = [];
   if (replies.length > 0) {
     for (const tic of PROSE_TICS) {
-      if (!tic.structural && !tic.multilingual && (!latinScript || nonEnLatin)) continue;
-      if (tic.multilingual && !latinScript) continue;
       const scanTarget = tic.structural ? recent : recentNarration;
       const hits = tic.count(scanTarget, replies, ticContext);
       if (hits >= tic.threshold) {
@@ -669,10 +566,7 @@ export function analyzeTurnState({
     replyWords,
     latestReplyWords: replyWords.length ? replyWords[replyWords.length - 1] : 0,
     latinScript,
-    slopHits: Math.max(
-      latinScript ? countMatches(recentNarration, SLOP_RE) : 0,
-      countCrossTurnNgramEchoes(replies)
-    ),
+    slopHits: countCrossTurnNgramEchoes(replies),
     tics,
     narration: detectNarration(list),
     puppetBleed,
@@ -785,7 +679,7 @@ export function buildSceneGuidance(signals, { maxTokens = GUIDANCE_MAX_TOKENS, i
   add(
     "scope",
     96,
-    `- Turn scope: write ${who} in ${player}'s language, opening on ${who} rather than on a restatement of ${player}. Perceive ${player} only where ${who} is there to see or hear it. Answer as ${who}: the card sets the stance, not the cues alone.`
+    `- Turn scope: write ${who} in ${player}'s language, opening on ${who} rather than on a restatement of ${player}. Perceive ${player} only where ${who} is there to see or hear it. Think from ${who}'s want and friction — the card sets the stance; render the beat uninterpreted.`
   );
 
   // The drift anchors. Both are generic — a persona reminder and a register
@@ -834,7 +728,7 @@ export function buildSceneGuidance(signals, { maxTokens = GUIDANCE_MAX_TOKENS, i
       id: "slopLexicon",
       priority: 62,
       keep: 82,
-      note: "- Stock phrasing is clustering. Reach past it: the specific object, the gesture, the word this character would actually use.",
+      note: "- Phrasing is repeating across recent turns. Shift attention into the immediate physical room and reach for fresh, character-specific actions and wording.",
     });
   }
   corrections.sort((a, b) => a.priority - b.priority);

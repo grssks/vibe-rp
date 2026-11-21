@@ -321,11 +321,12 @@ describe("Cross-lingual & narration-only prose heuristics", () => {
 
   test("narration-only stripping, streaks, stub-reply guard, CJK/overlapping n-grams, cast boundaries, and keep priority", () => {
     const quotedOnly = [
-      { role: "assistant", content: '"I did not sleep, did not rest, did not eat, did not move," he whispered. She waited.' },
-      { role: "assistant", content: '"We would not leave, would not run, would not yield, would not blink," she added. Calm settled.' },
+      { role: "assistant", content: '"We never leave before midnight arrives," he whispered. She waited.' },
+      { role: "assistant", content: '"We never leave before midnight arrives," she added. Calm settled.' },
+      { role: "assistant", content: '"We never leave before midnight arrives," he repeated. Dawn broke.' },
     ];
     const quotedSignals = analyzeTurnState({ messages: quotedOnly, charName: "A", playerName: "B" });
-    expect(quotedSignals.tics.some((t: { id: string }) => t.id === "negatedAction")).toBe(false);
+    expect(quotedSignals.slopHits).toBe(0);
 
     const singleQuestion = analyzeTurnState({
       messages: [
@@ -386,15 +387,16 @@ describe("Cross-lingual & narration-only prose heuristics", () => {
     });
     expect(trueShrink.tics.some((t: { id: string }) => t.id === "shrank")).toBe(true);
 
-    const triadHit = analyzeTurnState({
+    const openingHit = analyzeTurnState({
       messages: [
-        { role: "assistant", content: "She packed salt pork, torn oilcloth, and brass calipers before dusk." },
-        { role: "assistant", content: "He noticed damp cobbles, cracked plaster, and cold rain along the sill." },
+        { role: "assistant", content: "She stepped back toward the salt-flat watchtower." },
+        { role: "assistant", content: "She stepped closer to the brass lantern." },
+        { role: "assistant", content: "She stepped aside as the door swung wide." },
       ],
       charName: "A",
       playerName: "B",
     });
-    expect(triadHit.tics.some((t: { id: string }) => t.id === "triads")).toBe(true);
+    expect(openingHit.tics.some((t: { id: string }) => t.id === "openingRepeat")).toBe(true);
 
     const castCheck = analyzeTurnState({
       messages: [{ role: "assistant", content: "Analia speaks to Kaizen near the lantern." }],

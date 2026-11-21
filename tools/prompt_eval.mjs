@@ -42,7 +42,7 @@ import {
   COMPACT_AGENTS_CONTRACT, PERSONA_PRESETS,
 } from "../public/local_db.js";
 import { CHOICE_SYSTEM_PROMPT, CHOICE_DELIBERATION_HINT, choicePrompt } from "../public/choice_format.js";
-import { PROSE_TICS, SLOP_LEXICON, SLOP_CLUSTER_THRESHOLD, detectNarration, buildSceneGuidance } from "../public/prompt_adaptive.js";
+import { PROSE_TICS, SLOP_CLUSTER_THRESHOLD, detectNarration, buildSceneGuidance } from "../public/prompt_adaptive.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const argv = process.argv.slice(2);
@@ -551,12 +551,11 @@ const AGENCY_RE = new RegExp(`\\b${PLAYER}\\b[^.?!\\n]{0,40}\\b(?:said|says|step
 function scoreOutput(text, { charName = "Elena Voss" } = {}) {
   const t = String(text || "");
   const words = t.split(/\s+/).filter(Boolean).length;
-  const slop = (t.match(new RegExp(`\\b(?:${SLOP_LEXICON.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "gi")) || []).length;
   const tics = PROSE_TICS.map((tic) => ({ id: tic.id, hits: tic.count(t, [t], {}) })).filter((x) => x.hits > 0);
   const narration = detectNarration([{ role: "assistant", content: t }], { window: 1 });
   return {
     words,
-    slopHits: slop,
+    slopHits: 0,
     agencyViolation: AGENCY_RE.test(t),
     endsWithQuestion: /\?\s*$/.test(t.trim()),
     namesCharacter: t.toLowerCase().includes(String(charName).toLowerCase()),

@@ -153,19 +153,19 @@ describe("cross-turn n-gram echo detection for agglutinative prose", () => {
     expect(blurb).toContain("Saki Himekawa corners Iqbal and grabs his collar.");
   });
 
-  test("11. multilingual contrast tic ('Alih-alih X, Y' / 'bukan X, melainkan Y') and verbatim 4-gram echoes fire on Indonesian replies", () => {
+  test("11. verbatim cross-turn 4-gram echoes fire dynamically on Indonesian replies without a wordlist", () => {
     const messages = [
       { role: "user", content: "Aku menyodorkan botol air dingin ke arah Saki." },
       {
         role: "assistant",
         content:
-          "Alih-alih menolak dan mati kehausan demi gengsi, ia menengadahkan kepala dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat saat cairan es membasahi kerongkongannya.",
+          "Ia menengadahkan kepala dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat saat cairan es membasahi kerongkongannya.",
       },
       { role: "user", content: "Aku memperhatikannya minum." },
       {
         role: "assistant",
         content:
-          "Alih-alih meneguknya pelan, mulut botol itu ia jejalkan ke bibirnya dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat.",
+          "Mulut botol itu ia jejalkan ke bibirnya dan menenggak air dingin itu dengan rakus. Jakunnya naik-turun cepat.",
       },
     ];
     const state = analyzeTurnState({
@@ -173,7 +173,6 @@ describe("cross-turn n-gram echo detection for agglutinative prose", () => {
       charName: "Saki Himekawa",
       playerName: "Iqbal",
     });
-    expect(state.tics.some((t) => t.id === "contrast")).toBe(true);
     expect(state.slopHits).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
   });
 });
@@ -278,25 +277,25 @@ describe("endpoint & transport hardening", () => {
     }
   });
 
-  test("17. Indonesian PROSE_TICS (emotionMix, triads, explainedTheBeat) and Indonesian SLOP_LEXICON fire on clustered replies", () => {
+  test("17. language-agnostic countCrossTurnNgramEchoes catches clustered phrase repetition in Indonesian without a static lexicon", () => {
     const messages = [
       { role: "user", content: "Aku menatapnya." },
       {
         role: "assistant",
         content:
-          "Ia menelan ludah dan napasnya tercekat. Di dadanya ada campuran takut dan lega, seolah sedang menahan sesuatu. Ia meletakkan lampu, kunci, dan peta di meja.",
+          "Ia menelan ludah pelan, napasnya tercekat di tenggorokan, lalu tangannya gemetar di atas meja.",
       },
       { role: "user", content: "Aku menunggu jawabannya." },
       {
         role: "assistant",
         content:
-          "Dengan suara serak ia menyeringai tipis, tulang punggungnya menegang. Ada perpaduan marah dan cemas di suaranya, ada sesuatu di matanya saat meraih pedang, perisai, dan jubah.",
+          "Sekali lagi napasnya tercekat di tenggorokan sebelum tangannya gemetar di atas meja.",
       },
       { role: "user", content: "Katanya?" },
       {
         role: "assistant",
         content:
-          "Rahangnya mengeras dan tatapannya tak lepas dariku, seolah ingin memastikan semuanya.",
+          "Tanpa suara napasnya tercekat di tenggorokan saat tangannya gemetar di atas meja.",
       },
     ];
     const state = analyzeTurnState({
@@ -304,10 +303,6 @@ describe("endpoint & transport hardening", () => {
       charName: "Saki Himekawa",
       playerName: "Iqbal",
     });
-    const ids = state.tics.map((t) => t.id);
-    expect(ids).toContain("emotionMix");
-    expect(ids).toContain("triads");
-    expect(ids).toContain("explainedTheBeat");
     expect(state.slopHits).toBeGreaterThanOrEqual(SLOP_CLUSTER_THRESHOLD);
   });
 
@@ -353,33 +348,33 @@ describe("endpoint & transport hardening", () => {
     }
   });
 
-  test("19. sycophancy and openingEcho detectors fire on English and Indonesian transcripts", () => {
+  test("19. language-agnostic openingRepeat detector fires on repetitive English and Indonesian openings", () => {
     const enState = analyzeTurnState({
       messages: [
-        { role: "user", content: "I step closer and ask why you lied." },
-        { role: "assistant", content: "As you step closer, she sighs. \"Of course, you're right.\"" },
-        { role: "user", content: "That's not an answer." },
-        { role: "assistant", content: "When you press her, she nods. \"Certainly, I completely understand.\"" },
+        { role: "user", content: "I step closer." },
+        { role: "assistant", content: "She tilts her head and sets the cup down." },
+        { role: "user", content: "What now?" },
+        { role: "assistant", content: "She tilts her chin toward the door without speaking." },
+        { role: "user", content: "Tell me." },
+        { role: "assistant", content: "She tilts back in the chair and folds her arms." },
       ],
       charName: "Elena",
       playerName: "Rowan",
     });
-    const enIds = enState.tics.map((t) => t.id);
-    expect(enIds).toContain("sycophancy");
-    expect(enIds).toContain("openingEcho");
+    expect(enState.tics.map((t) => t.id)).toContain("openingRepeat");
 
     const idState = analyzeTurnState({
       messages: [
-        { role: "user", content: "Aku mendekat dan bertanya." },
-        { role: "assistant", content: "Saat kamu mendekat, dia mengangguk. \"Tentu saja, kamu benar.\"" },
+        { role: "user", content: "Aku mendekat." },
+        { role: "assistant", content: "Dia menatap meja kayu itu sambil menyandarkan bahu." },
         { role: "user", content: "Jelaskan sekarang." },
-        { role: "assistant", content: "Mendengar kamu mendesak, dia tersenyum. \"Baiklah kalau begitu, aku mengerti sepenuhnya.\"" },
+        { role: "assistant", content: "Dia menatap pintu besi itu lalu menggeser kursi." },
+        { role: "user", content: "Jawab." },
+        { role: "assistant", content: "Dia menatap cangkir kosong di dekat jendela." },
       ],
       charName: "Saki",
       playerName: "Iqbal",
     });
-    const idIds = idState.tics.map((t) => t.id);
-    expect(idIds).toContain("sycophancy");
-    expect(idIds).toContain("openingEcho");
+    expect(idState.tics.map((t) => t.id)).toContain("openingRepeat");
   });
 });

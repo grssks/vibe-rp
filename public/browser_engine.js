@@ -45,7 +45,6 @@ export {
   buildSceneGuidance,
   detectNarration,
   PROSE_TICS,
-  SLOP_LEXICON,
   GUIDANCE_MAX_TOKENS,
 } from "./prompt_adaptive.js";
 import {
