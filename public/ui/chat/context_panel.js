@@ -37,7 +37,7 @@
 //   formatTokens(n)          -> string
 
 import { usageTrend } from "../../usage_history.js";
-import { escapeHtml } from "../../safe_html.js";
+import { escapeHtml, escapeAttr } from "../../safe_html.js";
 
 const THOUSAND = 1000;
 const MILLION = 1000 * THOUSAND;
@@ -157,7 +157,7 @@ function trendChart(trend) {
       return (
         `<span class="rp-ledger__trend-bar" data-state="${state}"` +
         (point.folded ? ` data-folded="true"` : "") +
-        ` style="--h:${height}"` +
+        ` data-h="${height}"` +
         ` title="Reply ${index + 1}: ${what}"></span>`
       );
     })
@@ -169,7 +169,7 @@ function trendChart(trend) {
   return (
     // `--bars` lets the stylesheet size the track to the series: two replies get
     // a two-bar chart, thirty fill the column.
-    `<div class="rp-ledger__trend" role="img" style="--bars:${trend.total}" ` +
+    `<div class="rp-ledger__trend" role="img" data-bars="${trend.total}" ` +
     `aria-label="Cache reuse for ${subject} under this setup, oldest first: ${series}">` +
     bars +
     `</div>`
@@ -268,6 +268,12 @@ export function renderContextPanel({
   scope = "",
   scopeLabel = null,
   pruned = null,
+  ledgerTruncated = false,
+  ignoresMaxTokens = false,
+  interactive = false,
+  ledgerText = "",
+  authorsNote = "",
+  canFold = false,
 } = {}) {
   if (!request) return "";
   const b = request.breakdown || {};
@@ -286,9 +292,17 @@ export function renderContextPanel({
           "older turns summarized, so the story keeps its memory"
         )
       : "",
+    b.ledger > 0 && ledgerTruncated
+      ? note("The continuity recap reached its size ceiling and was compressed; earlier detail may be condensed.")
+      : "",
     row("Your message", formatTokens(b.currentInput)),
   ];
 
+  const matchedLore = Array.isArray(request.matchedLore)
+    ? request.matchedLore
+        .map((entry) => (typeof entry === "string" ? entry : entry?.name || entry?.keys?.[0] || ""))
+        .filter(Boolean)
+    : [];
   const leftOut = Array.isArray(request.excludedSections) ? request.excludedSections.map(plainSectionName) : [];
   const setup = [
     row("Character and story rules", formatTokens(b.requiredStatic), "the character card and the writing instructions"),
@@ -297,6 +311,7 @@ export function renderContextPanel({
       : "",
     b.persona > 0 ? row("Your persona", formatTokens(b.persona), "who you are in the scene") : "",
     b.lore > 0 ? row("World lore", formatTokens(b.lore), "background facts pulled in for this scene") : "",
+    matchedLore.length ? note(`Active lorebook entries: ${matchedLore.join(", ")}.`) : "",
     leftOut.length ? note(`Left out to make room: ${leftOut.join(", ")}.`) : "",
   ];
 
@@ -342,8 +357,11 @@ export function renderContextPanel({
     if (usage.ceilingIgnored) {
       provider.push(row("Reply limit", "ignored", "your Max response tokens setting had no effect on the last turn"));
     }
-  } else if (request.overheadTokens > 0) {
-    provider.push(addedByProvider(request.overheadTokens));
+  } else {
+    if (request.overheadTokens > 0) provider.push(addedByProvider(request.overheadTokens));
+    if (ignoresMaxTokens) {
+      provider.push(row("Reply limit", "ignored", "this model previously exceeded Max response tokens"));
+    }
   }
 
   // Where the window number came from. It is a setting the reader chose, not a
@@ -363,6 +381,28 @@ export function renderContextPanel({
         `<span class="rp-ledger__summary-of">tokens of ${formatCount(summary.window)} used</span>`;
 
   // The group is named for what it is: the last reply, not the next request.
+  const controls = interactive
+    ? `<section class="rp-ledger__group rp-ledger__controls" aria-label="Scene memory and export">` +
+      `<h3 class="rp-ledger__group-title">Scene memory &amp; export</h3>` +
+      `<label class="rp-ledger__label" for="rp-context-authors-note">Author's Note (injected into recent scene)</label>` +
+      `<textarea id="rp-context-authors-note" class="rp-input rp-ledger__textarea" rows="2" data-context-authors-note placeholder="Optional scene guidance or tone reminder…">${escapeHtml(authorsNote || "")}</textarea>` +
+      `<div class="rp-ledger__actions">` +
+      `<button type="button" class="rp-btn rp-btn--small" data-context-save-note>Save note</button>` +
+      `</div>` +
+      `<label class="rp-ledger__label" for="rp-context-ledger">Continuity recap</label>` +
+      `<textarea id="rp-context-ledger" class="rp-input rp-ledger__textarea" rows="4" data-context-ledger placeholder="No continuity recap yet.">${escapeHtml(ledgerText || "")}</textarea>` +
+      `<div class="rp-ledger__actions">` +
+      `<button type="button" class="rp-btn rp-btn--small" data-context-save-ledger>Save recap</button>` +
+      `<button type="button" class="rp-btn rp-btn--small" data-context-fold${canFold ? "" : " disabled"}>Fold now</button>` +
+      `<button type="button" class="rp-btn rp-btn--small" data-context-rebuild-ledger>Rebuild recap</button>` +
+      `</div>` +
+      `<div class="rp-ledger__actions">` +
+      `<button type="button" class="rp-btn rp-btn--small rp-btn--ghost" data-context-export="${escapeAttr("md")}">Export Markdown</button>` +
+      `<button type="button" class="rp-btn rp-btn--small rp-btn--ghost" data-context-export="${escapeAttr("json")}">Export JSON</button>` +
+      `</div>` +
+      `</section>`
+    : "";
+
   // Everything else on the sheet is a forecast; these rows are the only
   // measurement, and the trend below them is what turns one measurement into
   // something a reader can act on.
@@ -371,7 +411,7 @@ export function renderContextPanel({
     `<div class="rp-ledger__summary-head">${headline}</div>` +
     `<div class="rp-ledger__meter-row">` +
     `<div class="rp-ledger__meter" role="img" aria-label="${summary.pct} percent of the context window used">` +
-    `<span style="width:${summary.pct}%"></span></div>` +
+    `<span data-pct="${summary.pct}"></span></div>` +
     `<span class="rp-ledger__meter-pct">${summary.pct}%</span>` +
     `</div>` +
     `<p class="rp-ledger__summary-note">${summary.note}</p>` +
@@ -381,6 +421,49 @@ export function renderContextPanel({
     group("Character and setup", setup) +
     group("Reserved for the reply", reserved) +
     group("From your provider — your last reply", provider) +
-    trendSection(trend, { scopeLabel, dropped: trend.dropped })
+    trendSection(trend, { scopeLabel, dropped: trend.dropped }) +
+    controls
   );
+}
+
+/**
+ * Wires interactive Context panel controls (recap edit/fold/rebuild,
+ * Author's Note, and transcript export).
+ */
+export function bindContextPanelActions(
+  root,
+  { onSaveLedger, onFold, onRebuildLedger, onSaveAuthorsNote, onExport } = {},
+) {
+  if (!root) return;
+  const noteInput = root.querySelector("[data-context-authors-note]");
+  const ledgerInput = root.querySelector("[data-context-ledger]");
+  root.querySelector("[data-context-save-note]")?.addEventListener("click", () => {
+    onSaveAuthorsNote?.(noteInput?.value ?? "");
+  });
+  root.querySelector("[data-context-save-ledger]")?.addEventListener("click", () => {
+    onSaveLedger?.(ledgerInput?.value ?? "");
+  });
+  root.querySelector("[data-context-fold]")?.addEventListener("click", () => {
+    onFold?.();
+  });
+  root.querySelector("[data-context-rebuild-ledger]")?.addEventListener("click", () => {
+    onRebuildLedger?.();
+  });
+  root.querySelectorAll("[data-context-export]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      onExport?.(btn.getAttribute("data-context-export") || "md");
+    });
+  });
+}
+
+/** Applies CSSOM geometry properties to rendered context panel markup under style-src 'self'. */
+export function applyContextPanelStyles(container) {
+  if (!container) return;
+  const trend = container.querySelector?.(".rp-ledger__trend[data-bars]");
+  if (trend) trend.style?.setProperty("--bars", trend.dataset.bars);
+  for (const bar of container.querySelectorAll?.(".rp-ledger__trend-bar[data-h]") || []) {
+    bar.style?.setProperty("--h", bar.dataset.h);
+  }
+  const meter = container.querySelector?.(".rp-ledger__meter > span[data-pct]");
+  if (meter?.style) meter.style.width = `${meter.dataset.pct}%`;
 }

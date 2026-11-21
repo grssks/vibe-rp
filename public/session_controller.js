@@ -9,10 +9,10 @@
 // can pass fakes; both default to the real browser singletons.
 
 import { LocalDb } from "./local_db.js";
-import { BrowserChatEngine } from "./browser_engine.js";
+import { BrowserChatEngine, foldNow } from "./browser_engine.js";
 import { applyFold, resetLedger, captureLedgerState, restoreLedgerState, resetLedgerIfInvalidated, ledgerDescribes } from "./session_state.js";
 import { recordUsageSample, scopeKeyOf, buildUsageScopeKey } from "./usage_history.js";
-import { looksLikeModelRefusal, resolveCardIdentity } from "./text.js";
+import { looksLikeModelRefusal, resolveCardIdentity, extractThoughtBlocks, stripThoughtBlocks } from "./text.js";
 
 const GREETING_FALLBACK = "The door closes behind you. Silence settles into the corridor.";
 const INITIAL_TITLE = "Chapter 1: The Initial Approach";
@@ -27,6 +27,12 @@ let messageCounter = 0;
 function nextMessageId() {
   messageCounter += 1;
   return `msg_${Date.now()}_${messageCounter}`;
+}
+
+let sessionCounter = 0;
+function nextSessionId() {
+  sessionCounter += 1;
+  return `sess_${Date.now()}_${sessionCounter}`;
 }
 
 /**
@@ -86,6 +92,9 @@ export function choiceSourceSignature(msg) {
 
 export class SessionController {
   #activeTurn = null;
+  #activePlaceholder = null;
+  #rerollBackup = null;
+  #keepPartialOnCancel = false;
   #choiceToken = 0;
   #choiceAbort = null;
   constructor({ db = LocalDb, engine = BrowserChatEngine } = {}) {
@@ -115,6 +124,13 @@ export class SessionController {
     return this;
   }
 
+  async loadCard(cardId) {
+    const cards = await this.db.getAllCards();
+    const match = cards.find(c => c.id === cardId);
+    if (match) this.activeCard = match;
+    return this.activeCard;
+  }
+
   get charName() {
     if (!this.activeCard) return "Character";
     return resolveCardIdentity(this.activeCard).displayName || "Character";
@@ -142,7 +158,8 @@ export class SessionController {
   }
 
   async loadSessions(sessionId) {
-    this.cancel();
+    this.cancel({ keepPartial: false });
+    this.#rerollBackup = null;
     this.sessions = await this.db.getSessionsForCard(this.activeCard.id);
     this.#discardLiveChoices();
     this.activeSession = this.sessions.find(s => s.id === sessionId) || this.sessions[0];
@@ -153,12 +170,13 @@ export class SessionController {
   }
 
   async createSession({ id = null, title = null, greeting = null, greetingIndex = null } = {}) {
-    this.cancel();
+    this.cancel({ keepPartial: false });
+    this.#rerollBackup = null;
     const content = typeof greeting === "string" && greeting.trim()
       ? greeting.trim()
       : this.greeting(greetingIndex);
     const sess = {
-      id: id || `sess_${Date.now()}`,
+      id: id || nextSessionId(),
       cardId: this.activeCard.id,
       title: title || INITIAL_TITLE,
       messages: [
@@ -180,7 +198,8 @@ export class SessionController {
   }
 
   switchSession(sess) {
-    this.cancel();
+    this.cancel({ keepPartial: false });
+    this.#rerollBackup = null;
     // The live choice state belongs to the session being left. Discard it
     // without touching either session's persisted set, so returning to a
     // session restores its own choices.
@@ -211,10 +230,144 @@ export class SessionController {
     return this.saveCard();
   }
 
+  get activeAgentsContract() {
+    return this.currentDirective ? (this.currentDirective.content ?? "") : (this.settings?.agentsContract ?? "");
+  }
+
+  updateSettings(patch) {
+    const next = { ...this.db.getSettings(), ...patch };
+    this.db.saveSettings(next);
+    this.settings = next;
+    return next;
+  }
+
+  async forkSession(msgId, { title = null } = {}) {
+    const source = this.activeSession;
+    const messages = source?.messages || [];
+    const idx = messages.findIndex((m) => m.id === msgId);
+    if (idx === -1) return null;
+    const sourceConsumed = Number(source.consumed) || 0;
+    const retainsFold = Boolean(source.ledger && sourceConsumed > 0 && idx >= sourceConsumed - 1);
+    const forked = {
+      id: nextSessionId(),
+      cardId: source.cardId,
+      title: title || `${source.title || "Chat"} (fork)`,
+      messages: messages.slice(0, idx + 1).map((m) => ({ ...m })),
+      ledger: retainsFold ? (source.ledger || "") : "",
+      consumed: retainsFold ? sourceConsumed : 0,
+      ledgerTruncated: retainsFold ? Boolean(source.ledgerTruncated) : false,
+      ledgerOverflowReported: retainsFold ? Boolean(source.ledgerOverflowReported) : false,
+      ledgerCondensedReported: retainsFold ? Boolean(source.ledgerCondensedReported) : false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    await this.db.saveSession(forked);
+    this.sessions.push(forked);
+    this.switchSession(forked);
+    return forked;
+  }
+
+  async restoreDeletedMessage(session, { index, message, ledgerSnapshot }) {
+    if (!session || !Array.isArray(session.messages) || !message) return null;
+    session.messages.splice(Math.min(index, session.messages.length), 0, message);
+    restoreLedgerState(session, ledgerSnapshot);
+    if (this.activeSession === session) this.invalidateChoices();
+    await this.saveSession(session);
+    return session;
+  }
+
+  async refreshSessions() {
+    if (!this.activeCard) return [];
+    const loaded = await this.db.getSessionsForCard(this.activeCard.id);
+    const live = this.activeSession;
+    this.sessions = live
+      ? loaded.map((s) => (s.id === live.id ? live : s))
+      : loaded;
+    return this.sessions;
+  }
+
+  async renameSession(sessionId, newTitle) {
+    const target = (this.activeSession?.id === sessionId ? this.activeSession : null)
+      || this.sessions.find((s) => s.id === sessionId);
+    if (!target) return null;
+    target.title = String(newTitle || "").trim() || "Untitled chat";
+    target.updatedAt = Date.now();
+    if (this.activeSession?.id === target.id && this.activeSession !== target) {
+      this.activeSession.title = target.title;
+      this.activeSession.updatedAt = target.updatedAt;
+    }
+    await this.db.saveSession(target);
+    return target;
+  }
+
+  async deleteSession(sessionId) {
+    const activeChanged = this.activeSession?.id === sessionId;
+    if (activeChanged) this.cancel({ keepPartial: false });
+    await this.db.deleteSession(sessionId);
+    this.sessions = this.sessions.filter((s) => s.id !== sessionId);
+    if (activeChanged) {
+      this.switchSession(this.sessions[0] || null);
+    }
+    return { deleted: true, activeChanged, nextSession: this.activeSession };
+  }
+
   async refreshPresets() {
-    this.currentPersona = await this.db.resolvePersonaForCard(this.activeCard);
-    this.currentDirective = await this.db.resolveDirectiveForCard(this.activeCard);
+    this.currentPersona = await this.db.resolvePersonaForCard(this.activeCard, this.activeSession);
+    this.currentDirective = await this.db.resolveDirectiveForCard(this.activeCard, this.activeSession);
     return { persona: this.currentPersona, directive: this.currentDirective };
+  }
+
+  async setSessionPersona(val) {
+    if (!this.activeSession) return null;
+    this.activeSession.userPersonaId = val || "";
+    this.activeSession.updatedAt = Date.now();
+    await this.saveSession(this.activeSession);
+    await this.refreshPresets();
+    return this.currentPersona;
+  }
+
+  async setSessionDirective(val) {
+    if (!this.activeSession) return null;
+    this.activeSession.directivePresetId = val || "";
+    this.activeSession.updatedAt = Date.now();
+    await this.saveSession(this.activeSession);
+    await this.refreshPresets();
+    return this.currentDirective;
+  }
+
+  async setAuthorsNote(note) {
+    if (!this.activeSession) return "";
+    this.activeSession.authorsNote = String(note ?? "");
+    this.activeSession.updatedAt = Date.now();
+    await this.saveSession(this.activeSession);
+    return this.activeSession.authorsNote;
+  }
+
+  async setSessionLedger(text) {
+    if (!this.activeSession) return "";
+    this.activeSession.ledger = String(text ?? "");
+    this.activeSession.ledgerTruncated = false;
+    this.activeSession.updatedAt = Date.now();
+    await this.saveSession(this.activeSession);
+    return this.activeSession.ledger;
+  }
+
+  async foldSessionLedger({ rebuild = false, onNotice = null } = {}) {
+    if (!this.activeSession) return { folded: false, ledger: "", consumed: 1 };
+    const res = await foldNow({
+      card: this.activeCard,
+      session: this.activeSession,
+      settings: this.settings,
+      persona: this.currentPersona,
+      agentsContract: this.activeAgentsContract,
+      rebuild,
+      onNotice,
+    });
+    if (res.folded) {
+      this.activeSession.updatedAt = Date.now();
+      await this.saveSession(this.activeSession);
+    }
+    return res;
   }
 
   /**
@@ -263,6 +416,7 @@ export class SessionController {
   // Message transitions
 
   appendMessage({ role, content, timestamp = Date.now() }) {
+    this.#rerollBackup = null;
     const msg = { id: nextMessageId(), role, content, timestamp };
     this.activeSession.messages.push(msg);
     // A new user turn begins here, so any pending choice set describes a scene
@@ -289,15 +443,26 @@ export class SessionController {
     const idx = msgs.findIndex(m => m.id === id);
     if (idx === -1) return null;
     const original = msgs[idx];
+    if (content === original.content) return original;
+    this.#rerollBackup = null;
     // The ledger is a summary of this message, so it now states something the
     // story does not. Drop it and let the next turn rebuild one from what
     // remains, rather than send the model a fact the reader edited away.
     resetLedgerIfInvalidated(this.activeSession, idx);
+    const nextForks = [
+      ...(original.forks || []),
+      {
+        content: original.content,
+        timestamp: original.timestamp,
+        ...(original.thought ? { thought: original.thought } : {}),
+      },
+    ];
     const fork = {
       ...original,
       content,
       timestamp: Date.now(),
-      forks: [...(original.forks || []), { content: original.content, timestamp: original.timestamp }],
+      forks: nextForks,
+      forkIndex: nextForks.length,
     };
     msgs[idx] = fork;
     // The message's text changed, so any choice set derived from this branch is
@@ -306,11 +471,108 @@ export class SessionController {
     return fork;
   }
 
+  /** Returns `{ current, total }` (1-based) for revisions or alternate opening greetings. */
+  getMessageForkInfo(msgId) {
+    const msgs = this.activeSession?.messages || [];
+    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (idx === -1) return { current: 1, total: 1 };
+    const msg = msgs[idx];
+    const forks = Array.isArray(msg?.forks) ? msg.forks : [];
+    if (idx === 0 && msg.role === "assistant" && forks.length === 0) {
+      const alts = Array.isArray(this.activeCard?.data?.alternate_greetings)
+        ? this.activeCard.data.alternate_greetings.filter((g) => typeof g === "string" && g.trim())
+        : [];
+      if (alts.length > 0) return { current: 1, total: 1 + alts.length };
+      return { current: 1, total: 1 };
+    }
+    if (!forks.length) return { current: 1, total: 1 };
+    const cur = typeof msg.forkIndex === "number"
+      ? Math.max(0, Math.min(forks.length, msg.forkIndex))
+      : forks.length;
+    return { current: cur + 1, total: forks.length + 1 };
+  }
+
+  /** Cycles a message (or opening greeting) to its next/previous revision by `delta`. */
+  cycleMessageFork(msgId, delta = 1) {
+    const msgs = this.activeSession?.messages || [];
+    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (idx === -1) return null;
+    const msg = msgs[idx];
+    let forks = Array.isArray(msg.forks) ? msg.forks.slice() : [];
+    let curIdx = typeof msg.forkIndex === "number"
+      ? Math.max(0, Math.min(forks.length, msg.forkIndex))
+      : forks.length;
+
+    if (idx === 0 && msg.role === "assistant" && forks.length === 0) {
+      const alts = Array.isArray(this.activeCard?.data?.alternate_greetings)
+        ? this.activeCard.data.alternate_greetings.filter((g) => typeof g === "string" && g.trim())
+        : [];
+      if (!alts.length) return msg;
+      forks = alts.map((g) => ({ content: g.trim(), timestamp: msg.timestamp || Date.now() }));
+      curIdx = 0;
+    }
+    if (!forks.length) return msg;
+
+    const currentEntry = {
+      content: msg.content,
+      timestamp: msg.timestamp,
+      ...(msg.thought ? { thought: msg.thought } : {}),
+    };
+    const all = [...forks.slice(0, curIdx), currentEntry, ...forks.slice(curIdx)];
+    const step = Number(delta) || 0;
+    const nextIdx = ((curIdx + step) % all.length + all.length) % all.length;
+    const chosen = all[nextIdx];
+    const nextForks = all.filter((_, i) => i !== nextIdx);
+
+    resetLedgerIfInvalidated(this.activeSession, idx);
+    const updated = {
+      ...msg,
+      content: chosen.content,
+      timestamp: chosen.timestamp || msg.timestamp,
+      forks: nextForks,
+      forkIndex: nextIdx,
+    };
+    if (chosen.thought) updated.thought = chosen.thought;
+    else delete updated.thought;
+    msgs[idx] = updated;
+    this.invalidateChoices();
+    return updated;
+  }
+
+  /** Rewinds the active session to end at `msgId`, returning an undo snapshot. */
+  rewindToMessage(msgId) {
+    const sess = this.activeSession;
+    const msgs = sess?.messages || [];
+    const idx = msgs.findIndex((m) => m.id === msgId);
+    if (idx === -1 || idx >= msgs.length - 1) return null;
+    this.#rerollBackup = null;
+    const ledgerSnapshot = this.captureLedgerSnapshot();
+    resetLedgerIfInvalidated(sess, idx + 1, { removes: true });
+    const removed = msgs.splice(idx + 1);
+    this.invalidateChoices();
+    return { index: idx + 1, removed, ledgerSnapshot };
+  }
+
+  /** Restores messages removed by `rewindToMessage`. */
+  async restoreRewoundMessages(sessionOrSnapshot, maybeSnapshot) {
+    const hasExplicitSession = maybeSnapshot !== undefined;
+    const session = hasExplicitSession ? sessionOrSnapshot : this.activeSession;
+    const snapshot = hasExplicitSession ? maybeSnapshot : sessionOrSnapshot;
+    const { index, removed, ledgerSnapshot } = snapshot || {};
+    if (!session || !Array.isArray(session.messages) || !Array.isArray(removed) || !removed.length) return null;
+    session.messages.splice(Math.min(index, session.messages.length), 0, ...removed);
+    restoreLedgerState(session, ledgerSnapshot);
+    if (this.activeSession === session) this.invalidateChoices();
+    await this.saveSession(session);
+    return session;
+  }
+
   deleteMessage(id) {
     const sess = this.activeSession;
     const msgs = sess?.messages || [];
     const idx = msgs.findIndex(m => m.id === id);
     if (idx === -1) return false;
+    this.#rerollBackup = null;
     // Coverage is positional, so a deletion inside the ledger's range moves the
     // boundary — but the content is wrong too, not just the index: the ledger
     // still describes the message being removed. Re-indexing would leave the
@@ -355,10 +617,14 @@ export class SessionController {
     const last = msgs[msgs.length - 1];
     const previous = msgs[msgs.length - 2];
     if (last?.role !== "assistant" || previous?.role !== "user") return null;
+    const ledgerSnapshot = this.captureLedgerSnapshot();
+    const choiceSetBackup = this.activeSession?.choiceSet ?? null;
+    resetLedgerIfInvalidated(this.activeSession, msgs.length - 1, { removes: true });
     msgs.pop();
     // The response the choices were generated from is gone, so the set is
     // stale; a fresh set is generated once the replacement settles.
     this.invalidateChoices();
+    this.#rerollBackup = { session: this.activeSession, message: last, ledgerSnapshot, choiceSetBackup };
     return previous.content;
   }
 
@@ -391,12 +657,25 @@ export class SessionController {
     // A new turn supersedes any turn still in flight, so two generations can
     // never run at once: a double-submit, or Retry pressed while the previous
     // attempt is still streaming. The superseded turn is aborted and its own
-    // failure path removes its placeholder, so nothing is left behind.
-    if (this.#activeTurn) this.#activeTurn.abort();
+    // empty placeholder is cleared synchronously before checkpointing.
+    if (this.#activeTurn) {
+      this.#keepPartialOnCancel = false;
+      this.#activeTurn.abort();
+    }
+    this.#keepPartialOnCancel = false;
     const turn = new AbortController();
     this.#activeTurn = turn;
     const signal = mergeSignals(externalSignal, turn);
     const targetSession = this.activeSession;
+    const rerollBackup = (this.#rerollBackup && this.#rerollBackup.session === targetSession)
+      ? this.#rerollBackup
+      : null;
+    this.#rerollBackup = null;
+    if (this.#activePlaceholder && this.#activePlaceholder.session === targetSession && !this.#activePlaceholder.msg.content) {
+      const staleIdx = targetSession?.messages?.indexOf(this.#activePlaceholder.msg) ?? -1;
+      if (staleIdx !== -1) targetSession.messages.splice(staleIdx, 1);
+      this.#activePlaceholder = null;
+    }
     // Captured before the first await: the prefix a turn is measured against is
     // the one it was sent under, and the reader can change the preset while the
     // reply is still streaming. Reading it afterwards would file the sample
@@ -405,6 +684,18 @@ export class SessionController {
     const usageBefore = targetSession ? targetSession.lastUsageReport || null : null;
     const consumedBefore = targetSession ? Math.max(1, Number(targetSession.consumed) || 1) : 1;
     let assistantMsg = null;
+    const rollbackReroll = () => {
+      if (!rerollBackup || !targetSession) return;
+      targetSession.messages.push(rerollBackup.message);
+      restoreLedgerState(targetSession, rerollBackup.ledgerSnapshot);
+      if (rerollBackup.choiceSetBackup) {
+        targetSession.choiceSet = rerollBackup.choiceSetBackup;
+        if (this.activeSession === targetSession) this.restoreChoices();
+      }
+      if (persistPending) {
+        Promise.resolve(this.db.saveSession(targetSession)).catch(() => {});
+      }
+    };
     try {
       // Crash-safety checkpoint before the network call (defect 5). Kept inside
       // the try so a storage failure here cannot leak the turn controller.
@@ -420,13 +711,14 @@ export class SessionController {
       };
       if (targetSession) {
         targetSession.messages.push(assistantMsg);
+        this.#activePlaceholder = { session: targetSession, msg: assistantMsg };
       }
       const returnedText = await this.engine.streamTurn({
         card: this.activeCard,
         session: targetSession,
         settings: this.settings,
         persona: this.currentPersona,
-        agentsContract: this.currentDirective ? (this.currentDirective.content ?? "") : (this.settings.agentsContract ?? ""),
+        agentsContract: this.activeAgentsContract,
         signal,
         onChunk: (chunk, notice) => {
           // Defensive: a null/undefined chunk must never be stringified into the
@@ -436,6 +728,11 @@ export class SessionController {
             if (onChunk) onChunk(chunk, assistantMsg);
           }
           if (notice) this.#surfaceNotice(notice, onNotice, assistantMsg);
+        },
+        onReasoning: (rChunk) => {
+          if (!rChunk) return;
+          assistantMsg.thought = (assistantMsg.thought || "") + rChunk;
+          options.onReasoning?.(rChunk, assistantMsg);
         },
         onNotice: (notice) => this.#surfaceNotice(notice, onNotice, assistantMsg),
       });
@@ -448,9 +745,36 @@ export class SessionController {
           assistantMsg.content = returnedText;
         }
       }
+      if (!assistantMsg.thought && assistantMsg.content) {
+        const extracted = extractThoughtBlocks(assistantMsg.content);
+        if (extracted.thought) assistantMsg.thought = extracted.thought;
+      }
     } catch (err) {
+      if (
+        err?.name === "AbortError" &&
+        this.#keepPartialOnCancel &&
+        assistantMsg &&
+        stripThoughtBlocks(assistantMsg.content).trim().length > 0 &&
+        !looksLikeModelRefusal(assistantMsg.content)
+      ) {
+        this.#keepPartialOnCancel = false;
+        if (!assistantMsg.thought) {
+          const extracted = extractThoughtBlocks(assistantMsg.content);
+          if (extracted.thought) assistantMsg.thought = extracted.thought;
+        }
+        assistantMsg.interrupted = true;
+        if (this.#activePlaceholder?.msg === assistantMsg) this.#activePlaceholder = null;
+        if (this.#activeTurn === turn) this.#activeTurn = null;
+        if (targetSession) {
+          targetSession.updatedAt = Date.now();
+          await this.db.saveSession(targetSession);
+        }
+        return assistantMsg;
+      }
+      this.#keepPartialOnCancel = false;
       // Defect 2: drop the placeholder so the transcript is byte-identical to
       // before the turn and no empty assistant message is ever persisted.
+      if (this.#activePlaceholder?.msg === assistantMsg) this.#activePlaceholder = null;
       if (assistantMsg && targetSession?.messages) {
         const idx = targetSession.messages.indexOf(assistantMsg);
         if (idx !== -1) targetSession.messages.splice(idx, 1);
@@ -463,8 +787,10 @@ export class SessionController {
       // turn), so the machine returns to idle and a retry re-enters the normal
       // pipeline.
       if (this.choiceState.status === CHOICE_STATUS.SUBMITTING) this.#resetChoiceState();
+      rollbackReroll();
       throw err;
     } finally {
+      if (this.#activePlaceholder?.msg === assistantMsg) this.#activePlaceholder = null;
       if (this.#activeTurn === turn) this.#activeTurn = null;
     }
     // A stream that settles with zero content must not persist a blank
@@ -478,6 +804,7 @@ export class SessionController {
         const idx = targetSession.messages.indexOf(assistantMsg);
         if (idx !== -1) targetSession.messages.splice(idx, 1);
       }
+      rollbackReroll();
       throw new Error("The model returned an empty reply. Retry, or check the endpoint and max output tokens for this model.");
     }
     // Autonomous refusal recovery: if the model leaked a conversational refusal or
@@ -490,7 +817,21 @@ export class SessionController {
         const idx = targetSession.messages.indexOf(assistantMsg);
         if (idx !== -1) targetSession.messages.splice(idx, 1);
       }
+      rollbackReroll();
       throw new Error("The model declined to continue the scene in character. Retry the turn to re-steer the narrative directly.");
+    }
+    if (rerollBackup?.message?.content) {
+      const prevForks = Array.isArray(rerollBackup.message.forks) ? rerollBackup.message.forks : [];
+      assistantMsg.id = rerollBackup.message.id || assistantMsg.id;
+      assistantMsg.forks = [
+        ...prevForks,
+        {
+          content: rerollBackup.message.content,
+          timestamp: rerollBackup.message.timestamp,
+          ...(rerollBackup.message.thought ? { thought: rerollBackup.message.thought } : {}),
+        },
+      ];
+      assistantMsg.forkIndex = assistantMsg.forks.length;
     }
     if (targetSession) {
       // One sample per completed turn, recorded here because this is the single
@@ -550,10 +891,112 @@ export class SessionController {
   }
 
   /**
+   * Continues the trailing assistant message in-place, preserving its previous
+   * text in `forks[]` and rolling back to the base text if generation fails.
+   */
+  async continueResponse(onChunk, onNotice, options = {}) {
+    const targetSession = this.activeSession;
+    const msgs = targetSession?.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== "assistant" || !String(last.content || "").trim()) return null;
+
+    if (this.#activeTurn) {
+      this.#keepPartialOnCancel = false;
+      this.#activeTurn.abort();
+    }
+    this.#keepPartialOnCancel = false;
+    const turn = new AbortController();
+    this.#activeTurn = turn;
+    const signal = mergeSignals(options.signal, turn);
+    const scope = this.usageScope();
+    const usageBefore = targetSession.lastUsageReport || null;
+    const consumedBefore = Math.max(1, Number(targetSession.consumed) || 1);
+
+    const baseContent = last.content;
+    const baseThought = last.thought;
+    const baseTimestamp = last.timestamp;
+    let added = "";
+    try {
+      const returnedText = await this.engine.streamTurn({
+        card: this.activeCard,
+        session: targetSession,
+        settings: this.settings,
+        persona: this.currentPersona,
+        agentsContract: this.activeAgentsContract,
+        continueMode: true,
+        signal,
+        onChunk: (chunk, notice) => {
+          if (chunk !== null && chunk !== undefined) {
+            if (!added && baseContent && !/\s$/.test(baseContent) && !/^\s/.test(chunk)) {
+              last.content += " ";
+              added += " ";
+              onChunk?.(" ", last);
+            }
+            last.content += chunk;
+            added += chunk;
+            onChunk?.(chunk, last);
+          }
+          if (notice) this.#surfaceNotice(notice, onNotice, last);
+        },
+        onReasoning: (rChunk) => {
+          if (!rChunk) return;
+          last.thought = (last.thought || "") + rChunk;
+          options.onReasoning?.(rChunk, last);
+        },
+        onNotice: (notice) => this.#surfaceNotice(notice, onNotice, last),
+      });
+      if (!added && typeof returnedText === "string" && returnedText) {
+        const sep = baseContent && !/\s$/.test(baseContent) && !/^\s/.test(returnedText) ? " " : "";
+        last.content = baseContent + sep + returnedText;
+        onChunk?.(sep + returnedText, last);
+      }
+    } catch (err) {
+      if (err?.name === "AbortError" && this.#keepPartialOnCancel && added.trim().length > 0) {
+        this.#keepPartialOnCancel = false;
+        if (this.#activeTurn === turn) this.#activeTurn = null;
+        last.interrupted = true;
+        targetSession.updatedAt = Date.now();
+        await this.db.saveSession(targetSession);
+        return last;
+      }
+      this.#keepPartialOnCancel = false;
+      last.content = baseContent;
+      if (baseThought !== undefined) last.thought = baseThought;
+      else delete last.thought;
+      throw err;
+    } finally {
+      if (this.#activeTurn === turn) this.#activeTurn = null;
+    }
+
+    if (last.content === baseContent) {
+      throw new Error("The model returned no continuation text.");
+    }
+    const prevForks = Array.isArray(last.forks) ? last.forks : [];
+    last.forks = [
+      ...prevForks,
+      { content: baseContent, timestamp: baseTimestamp, ...(baseThought ? { thought: baseThought } : {}) },
+    ];
+    last.forkIndex = last.forks.length;
+    last.timestamp = Date.now();
+    const usageAfter = targetSession.lastUsageReport || null;
+    recordUsageSample(targetSession, {
+      report: usageAfter !== usageBefore ? usageAfter : null,
+      scope,
+      at: Date.now(),
+      folded: Math.max(1, Number(targetSession.consumed) || 1) !== consumedBefore,
+    });
+    this.invalidateChoices();
+    targetSession.updatedAt = Date.now();
+    await this.db.saveSession(targetSession);
+    return last;
+  }
+
+  /**
    * Cancels the in-flight turn, if any. Safe to call at any time; the next
    * streamResponse creates a fresh controller. This is the Stop-button seam.
    */
-  cancel() {
+  cancel({ keepPartial = true } = {}) {
+    this.#keepPartialOnCancel = Boolean(keepPartial);
     if (this.#activeTurn) this.#activeTurn.abort();
     if (this.#choiceAbort) {
       this.#choiceAbort.abort();
@@ -647,6 +1090,11 @@ export class SessionController {
    * showed before. A set whose source no longer matches is discarded.
    */
   restoreChoices() {
+    this.#choiceToken += 1; // supersede anything in flight
+    if (this.#choiceAbort) {
+      this.#choiceAbort.abort();
+      this.#choiceAbort = null;
+    }
     const saved = this.activeSession?.choiceSet;
     if (!saved || !Array.isArray(saved.choices) || !saved.choices.length) {
       this.#resetChoiceState();
@@ -663,13 +1111,13 @@ export class SessionController {
       this.#resetChoiceState();
       return this.choiceState;
     }
-    this.#choiceToken += 1; // supersede anything in flight
     this.choiceState = {
       status: CHOICE_STATUS.READY,
       sourceId: saved.sourceId,
       sourceSig: saved.sourceSig,
       choices: saved.choices.map((c) => ({ id: c.id, text: c.text, label: c.label || "", type: c.type || "", pov: c.pov || "" })),
       error: null,
+      selectedId: null,
     };
     return this.choiceState;
   }
@@ -737,8 +1185,9 @@ export class SessionController {
    */
   async requestChoices({ count, onState, isRegenerate = false, onNotice = null, intent = "" } = {}) {
     const previousChoices = isRegenerate || (this.choiceState?.choices?.length > 0)
-      ? (this.choiceState?.choices || this.activeSession?.choiceSet?.choices || [])
+      ? (this.choiceState?.choices?.length ? this.choiceState.choices : (this.activeSession?.choiceSet?.choices || []))
       : [];
+    const targetSession = this.activeSession;
     const run = this.#beginChoiceGeneration();
     if (!run) return this.choiceState;
     onState?.(this.choiceState);
@@ -749,10 +1198,10 @@ export class SessionController {
     try {
       const { choices } = await this.engine.generateChoices({
         card: this.activeCard,
-        session: this.activeSession,
+        session: targetSession,
         settings: this.settings,
         persona: this.currentPersona,
-        agentsContract: this.currentDirective ? (this.currentDirective.content ?? "") : (this.settings.agentsContract ?? ""),
+        agentsContract: this.activeAgentsContract,
         count,
         charName: this.charName,
         playerName: this.currentPersona?.name || "the player",
@@ -762,7 +1211,7 @@ export class SessionController {
         signal: abort.signal,
         intent,
       });
-      settled = this.#settleChoices(token, choices);
+      settled = this.#settleChoices(token, choices, targetSession);
     } catch (err) {
       // An aborted request is not a failure: a superseding event usually already
       // reset the state, and reporting an error would flash a stale message. If
@@ -783,9 +1232,9 @@ export class SessionController {
     // storage failure must never surface as a choice error — the menu is
     // already valid on screen and the transcript is untouched — so it is
     // reported and swallowed.
-    if (this.choiceState.status === CHOICE_STATUS.READY && this.activeSession) {
+    if (settled && this.choiceState.status === CHOICE_STATUS.READY && targetSession && this.activeSession === targetSession) {
       try {
-        await this.db.saveSession(this.activeSession);
+        await this.db.saveSession(targetSession);
       } catch (err) {
         console.warn("Could not persist the choice set", err);
       }
@@ -794,10 +1243,10 @@ export class SessionController {
   }
 
   /** Applies a completed generation, unless a newer run has superseded it. */
-  #settleChoices(token, choices) {
-    if (token !== this.#choiceToken) return false;
+  #settleChoices(token, choices, targetSession = this.activeSession) {
+    if (token !== this.#choiceToken || this.activeSession !== targetSession) return false;
     const source = this.#findMessage(this.choiceState.sourceId);
-    if (!source || choiceSourceSignature(source) !== this.choiceState.sourceSig) {
+    if (!source || choiceSourceSignature(source) !== this.choiceState.sourceSig || this.choiceScene() !== source) {
       this.#resetChoiceState();
       return true;
     }
@@ -812,8 +1261,8 @@ export class SessionController {
       error: null,
     };
     // Persist the minimum needed to restore this set without another request.
-    if (this.activeSession) {
-      this.activeSession.choiceSet = {
+    if (targetSession) {
+      targetSession.choiceSet = {
         id: `cs_${Date.now()}`,
         sourceId: this.choiceState.sourceId,
         sourceSig: this.choiceState.sourceSig,
@@ -863,7 +1312,9 @@ export class SessionController {
     if (this.activeSession) {
       const targetSession = this.activeSession;
       targetSession.choiceSet = null;
-      this.db?.saveSession?.(targetSession);
+      Promise.resolve(this.db?.saveSession?.(targetSession)).catch((err) => {
+        console.warn("Could not clear persisted choice set", err);
+      });
     }
     return { id: choice.id, text: choice.text };
   }

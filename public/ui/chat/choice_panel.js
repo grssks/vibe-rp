@@ -40,6 +40,7 @@ const isMobileViewport = () =>
 export function createChoicePanel({
   mount,
   onSelect = () => {},
+  onEdit = null,
   onRegenerate = () => {},
   onRetry = () => {},
   autoFocus = () => true,
@@ -82,9 +83,10 @@ export function createChoicePanel({
     class: "visually-hidden",
     attrs: { role: "status", "aria-live": "polite" },
   });
-  const list = el("div", { class: "rp-choices__list", attrs: { role: "group" } });
+  const list = el("div", { class: "rp-choices__list", attrs: { role: "group", "aria-label": "Suggested choices" } });
   const notice = el("p", { class: "rp-choices__notice" });
   const actions = el("div", { class: "rp-choices__actions" });
+  const genBtn = el("button", { type: "button", class: "rp-btn rp-btn--secondary rp-btn--sm rp-choices__generate-btn", text: "Generate choices", hidden: true });
   const retryBtn = el("button", { type: "button", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Retry" });
   const regenBtn = el("button", { type: "button", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Regenerate choices" });
   const steerToggleBtn = el("button", {
@@ -97,7 +99,7 @@ export function createChoicePanel({
       "aria-controls": "choice-steer-bar",
     },
   });
-  actions.append(retryBtn, regenBtn, steerToggleBtn);
+  actions.append(genBtn, retryBtn, regenBtn, steerToggleBtn);
 
   const steerBar = el("div", {
     class: "rp-choices__steer-bar",
@@ -188,6 +190,7 @@ export function createChoicePanel({
     if (isCollapsed) setCollapsed(false);
   });
 
+  genBtn.addEventListener("click", () => onRetry());
   retryBtn.addEventListener("click", () => onRetry());
   regenBtn.addEventListener("click", () => onRegenerate());
 
@@ -215,11 +218,13 @@ export function createChoicePanel({
 
   steerSubmitBtn.addEventListener("click", submitSteer);
   steerInput.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       submitSteer();
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       setSteerBarVisible(false);
       steerToggleBtn.focus();
     }
@@ -229,19 +234,27 @@ export function createChoicePanel({
     setSteerBarVisible(false);
     steerToggleBtn.focus();
   });
-  // Buttons are rebuilt per set, so selection is delegated to the list.
+  // Buttons are rebuilt per set, so selection and edit are delegated to the list.
   list.addEventListener("click", (event) => {
+    const editBtn = event.target.closest("[data-edit-choice-id]");
+    if (editBtn && !editBtn.disabled) {
+      const id = editBtn.getAttribute("data-edit-choice-id");
+      const found = state.choices.find((c) => c.id === id);
+      if (found) onEdit?.(found);
+      return;
+    }
     const btn = event.target.closest("[data-choice-id]");
     if (!btn || btn.disabled) return;
-    setCollapsed(true);
     onSelect(btn.getAttribute("data-choice-id"));
   });
 
   /** Numeric shortcuts, only while choices wait and no field has focus. */
   function onKeydown(event) {
+    if (event.isComposing || event.keyCode === 229) return;
     if (state.mode !== "choice" || state.status !== "ready") return;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (isEditableTarget(event.target)) return;
+    if (document.querySelector?.("dialog[open], [role='dialog']:not([hidden]), .rp-sheet:not([hidden])")) return;
     if (event.key === "Escape") {
       event.preventDefault();
       setCollapsed(!isCollapsed);
@@ -271,6 +284,9 @@ export function createChoicePanel({
     const textEl = el("span", { class: "rp-choices__text", text: choice.text && choice.label ? choice.label : choice.text });
     textEl.classList.add("rp-choice-card__text");
     btn.append(keyEl, textEl);
+    if (choice.text && choice.label && choice.text !== choice.label) {
+      btn.append(el("span", { class: "rp-choices__prose rp-choice-card__prose", text: choice.text }));
+    }
     let badgeText = "";
     const povLower = (choice.pov || "").toLowerCase();
     const isPlayerPov = povLower === "player" || povLower === "user" || povLower === "me";
@@ -285,15 +301,28 @@ export function createChoicePanel({
     }
     if (badgeText) {
       const kindBadge = el("span", {
-        class: "rp-badge rp-badge--ghost",
+        class: "rp-badge rp-badge--ghost rp-choice-card__kind",
         attrs: { "aria-hidden": "true" },
         text: badgeText,
       });
-      kindBadge.style.cssText = "font-size: var(--text-2xs); margin-left: auto; align-self: center; opacity: 0.75;";
       btn.append(kindBadge);
     }
     if (disabled) btn.disabled = true;
     if (selected) btn.classList.add("is-selected");
+    if (typeof onEdit === "function") {
+      const editBtn = el("button", {
+        type: "button",
+        class: "rp-btn rp-btn--ghost rp-btn--sm rp-choices__edit-btn",
+        text: "Edit",
+        attrs: {
+          "data-edit-choice-id": choice.id,
+          "aria-label": "Edit choice in composer",
+          title: "Load into composer to edit before sending",
+        },
+      });
+      if (disabled) editBtn.disabled = true;
+      return el("div", { class: "rp-choices__item" }, [btn, editBtn]);
+    }
     return btn;
   }
 
@@ -330,10 +359,12 @@ export function createChoicePanel({
       heading.textContent = "Next moves";
     }
 
-    const visible = state.mode === "choice" && state.status !== "idle";
+    const idleCanGen = state.status === "idle" && Boolean(state.canGenerate);
+    const visible = state.mode === "choice" && (state.status !== "idle" || idleCanGen);
     mount.hidden = !visible;
     mount.dataset.status = state.status;
     if (!visible) {
+      pendingSteer = null;
       list.replaceChildren();
       lastStatus = state.status;
       setCollapsed(false);
@@ -346,7 +377,8 @@ export function createChoicePanel({
 
     // The status line: one sentence, describing the state, never the outcome.
     notice.hidden = false;
-    if (state.status === "generating") notice.textContent = "Generating choices…";
+    if (idleCanGen) notice.textContent = "Ready to generate choices for this turn.";
+    else if (state.status === "generating") notice.textContent = "Generating choices…";
     else if (state.status === "submitting") notice.textContent = "Continuing the scene…";
     else if (state.status === "error") notice.textContent = state.error || "Couldn't generate choices.";
     else notice.textContent = "";
@@ -368,7 +400,9 @@ export function createChoicePanel({
     // reader needs it precisely when the last attempt did not work. It is
     // hidden only while a request is in flight, where a second intent would
     // supersede the one already being generated.
-    const steerable = ready || state.status === "error";
+    const steerable = ready || state.status === "error" || idleCanGen;
+    genBtn.hidden = !idleCanGen;
+    genBtn.disabled = !idleCanGen;
     retryBtn.hidden = state.status !== "error";
     regenBtn.hidden = !ready;
     regenBtn.disabled = !ready;

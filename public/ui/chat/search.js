@@ -66,27 +66,31 @@ export function highlight(container, query) {
   const needle = String(query || "").trim();
   if (!container || !needle) return [];
   const re = new RegExp(escapeRegExp(needle), "gi");
+  const proseNodes = [...container.querySelectorAll(".rp-message__prose")];
+  const roots = proseNodes.length ? proseNodes : [container];
   const marks = [];
-  for (const node of textNodes(container)) {
-    const text = node.nodeValue;
-    re.lastIndex = 0;
-    if (!re.test(text)) continue;
-    re.lastIndex = 0;
-    const frag = document.createDocumentFragment();
-    let last = 0;
-    let m;
-    while ((m = re.exec(text))) {
-      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
-      const mark = document.createElement("mark");
-      mark.className = MARK_CLASS;
-      mark.textContent = m[0];
-      frag.appendChild(mark);
-      marks.push(mark);
-      last = m.index + m[0].length;
-      if (m[0].length === 0) re.lastIndex += 1;
+  for (const root of roots) {
+    for (const node of textNodes(root)) {
+      const text = node.nodeValue;
+      re.lastIndex = 0;
+      if (!re.test(text)) continue;
+      re.lastIndex = 0;
+      const frag = document.createDocumentFragment();
+      let last = 0;
+      let m;
+      while ((m = re.exec(text))) {
+        if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+        const mark = document.createElement("mark");
+        mark.className = MARK_CLASS;
+        mark.textContent = m[0];
+        frag.appendChild(mark);
+        marks.push(mark);
+        last = m.index + m[0].length;
+        if (m[0].length === 0) re.lastIndex += 1;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      node.parentNode.replaceChild(frag, node);
     }
-    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-    node.parentNode.replaceChild(frag, node);
   }
   return marks;
 }
@@ -192,10 +196,33 @@ export function createSearch({
    * and the search re-runs, so Next keeps working instead of wrapping.
    */
   function step(delta) {
-    if (!marks.length) return run();
+    if (!marks.length) {
+      run();
+      if (!marks.length && shown < total && typeof onExpand === "function") {
+        while (!marks.length && shown < total) {
+          let grew = false;
+          try {
+            grew = onExpand() !== false;
+          } catch (_) {
+            grew = false;
+          }
+          if (!grew) break;
+          run({ announce: false });
+        }
+        if (marks.length) {
+          index = delta < 0 ? marks.length - 1 : 0;
+          focusIndex(index);
+          setCount();
+        }
+        return marks.length;
+      }
+      return total;
+    }
     const last = marks.length - 1;
     const atEdge = delta > 0 ? index === last : index === 0;
     if (atEdge && shown < total && typeof onExpand === "function") {
+      const prevCount = marks.length;
+      const distFromEnd = prevCount - 1 - index;
       let grew = false;
       try {
         grew = onExpand() !== false;
@@ -203,10 +230,9 @@ export function createSearch({
         grew = false;
       }
       if (grew) {
-        const previousIndex = index;
         run({ announce: false });
-        // Keep the reader where they were, then step from there.
-        index = Math.max(0, Math.min(previousIndex, marks.length - 1));
+        // Keep the reader on the same match after older messages are prepended.
+        index = Math.max(0, Math.min(marks.length - 1 - distFromEnd, marks.length - 1));
       }
     }
     if (!marks.length) return 0;
@@ -230,6 +256,7 @@ export function createSearch({
 
   input.addEventListener("input", () => run());
   input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       e.preventDefault();
       if (e.shiftKey) prev();

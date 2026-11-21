@@ -137,7 +137,13 @@ describe("Context panel", () => {
   });
 
   test("an over-window request is named, not printed as arithmetic that cannot be read", () => {
-    const req = request(14, { maxContextTokens: 2048 });
+    const oversizedCard = { id: "c", data: { name: "Elena", description: filler(2500) } };
+    const req = BrowserChatEngine.describeRequest({
+      card: oversizedCard,
+      session: session(4),
+      settings: settings({ maxContextTokens: 2048 }),
+      persona: PERSONA,
+    });
     expect(req.impossible).toBe(true);
     const html = renderContextPanel({ request: req, usage: null });
     // "2.1k tokens of 2.0k used" is a sentence a reader has to decode; the state

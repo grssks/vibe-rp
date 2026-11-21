@@ -29,6 +29,7 @@ export function createComposer({
   if (!input || !sendButton) throw new Error("createComposer needs an input and a send button");
 
   let busy = false;
+  let dirtySinceSend = false;
 
   function resize() {
     input.style.height = "auto";
@@ -72,12 +73,13 @@ export function createComposer({
     if (busy) return;
     const text = input.value.trim();
     if (!text) return;
+    dirtySinceSend = false;
     clear();
     onSend(text);
   }
 
   function clearIfMatched(submittedText) {
-    if (typeof submittedText === "string" && input.value.trim() === submittedText.trim()) {
+    if (!dirtySinceSend && typeof submittedText === "string" && input.value.trim() === submittedText.trim()) {
       clear();
     }
   }
@@ -92,9 +94,9 @@ export function createComposer({
     if (personaAvatarEl) {
       if (isSafeAvatarUrl(avatar)) {
         const img = document.createElement("img");
+        img.className = "rp-avatar__img";
         img.src = avatar;
         img.alt = "";
-        img.style.cssText = "width:100%;height:100%;object-fit:cover;";
         personaAvatarEl.replaceChildren(img);
       } else {
         personaAvatarEl.textContent = (name.charAt(0) || "U").toUpperCase();
@@ -114,12 +116,14 @@ export function createComposer({
   }
 
   input.addEventListener("input", () => {
+    dirtySinceSend = true;
     resize();
     updateStats();
     updateSendState();
   });
 
   input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "Enter") {
       const isFine = Boolean(matchFinePointer?.());
       // Desktop with mouse/physical keyboard: Enter sends, Shift+Enter inserts newline.

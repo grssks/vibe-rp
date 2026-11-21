@@ -13,7 +13,7 @@
 // is bounded by one paragraph regardless of how long the reply gets.
 
 import { escapeHtml, escapeAttr } from "../../safe_html.js";
-import { stripThoughtBlocks as stripThoughts } from "../../text.js";
+import { stripThoughtBlocks as stripThoughts, extractThoughtBlocks } from "../../text.js";
 import { avatarInnerHtml } from "../character_card.js";
 import { scrollIntoViewRespectingMotion } from "../dom.js";
 
@@ -58,6 +58,15 @@ export function createMessageFeed({
   // --- small helpers -------------------------------------------------------
 
   const safeId = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const strSig = (s) => {
+    let h = 2166136261;
+    const str = String(s || "");
+    for (let i = 0; i < str.length; i += 1) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  };
   const timeText = (ts) =>
     ts ? new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
 
@@ -79,24 +88,45 @@ export function createMessageFeed({
     return `<span class="rp-message__tokens rp-tnum" title="Estimated tokens">~${tokens.toLocaleString()} tokens</span>`;
   }
 
-  /** Earlier drafts are a figure, not a disclosure: they read inline too. */
-  function forkMetaHtml(forks) {
-    if (!forks) return "";
-    return `<span class="rp-message__forks rp-tnum" title="Earlier drafts kept">${forks} draft${forks === 1 ? "" : "s"}</span>`;
+  /** Interactive `< 1 / N >` switcher for message drafts, rerolls, and alternate greetings. */
+  function forkMetaHtml(msg, current = 1, total = 1) {
+    if (!total || total <= 1) return "";
+    return (
+      `<span class="rp-message__forks rp-tnum" role="group" aria-label="Message revisions">` +
+      `<button type="button" class="rp-btn rp-btn--ghost rp-btn--xs rp-fork-nav" data-action="fork-prev" data-msg-id="${escapeAttr(msg.id)}" aria-label="Previous draft">&lt;</button>` +
+      `<span class="rp-fork-count">${current} / ${total}</span>` +
+      `<button type="button" class="rp-btn rp-btn--ghost rp-btn--xs rp-fork-nav" data-action="fork-next" data-msg-id="${escapeAttr(msg.id)}" aria-label="Next draft">&gt;</button>` +
+      `</span>`
+    );
+  }
+
+  function thoughtHtml(msg) {
+    const rawThought = msg?.thought || extractThoughtBlocks(msg?.content || "").thought;
+    if (!rawThought || !String(rawThought).trim()) return "";
+    return (
+      `<details class="rp-message__thought">` +
+      `<summary class="rp-message__thought-summary">Thought process</summary>` +
+      `<div class="rp-message__thought-body">${formatProse(resolve(rawThought))}</div>` +
+      `</details>`
+    );
   }
 
   function trayHtml(msg, opts) {
     const showDelete = Boolean(opts.showDelete);
     const showReroll = Boolean(opts.showReroll);
+    const showContinue = Boolean(opts.showContinue);
+    const showRewind = Boolean(opts.showRewind);
     const showFork = Boolean(opts.showFork);
     const showRetry = Boolean(opts.showRetry);
     const btns = [];
     const id = safeId(msg.id);
     if (showRetry) btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="retry" data-msg-id="${escapeAttr(msg.id)}">Retry reply</button>`);
+    if (showContinue) btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="continue" data-msg-id="${escapeAttr(msg.id)}">Continue</button>`);
     if (showReroll) btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="reroll" data-msg-id="${escapeAttr(msg.id)}">Reroll</button>`);
     btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="edit" data-msg-id="${escapeAttr(msg.id)}">Edit</button>`);
     btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="copy" data-msg-id="${escapeAttr(msg.id)}">Copy</button>`);
     if (showFork) btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="fork" data-msg-id="${escapeAttr(msg.id)}">Fork</button>`);
+    if (showRewind) btns.push(`<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-action="rewind" data-msg-id="${escapeAttr(msg.id)}">Rewind here</button>`);
     if (showDelete) btns.push(`<button type="button" class="rp-btn rp-btn--danger-ghost rp-btn--sm" data-action="delete" data-msg-id="${escapeAttr(msg.id)}">Delete</button>`);
     return `
       <div class="rp-message__tray" id="tray-${id}" data-open="false" role="group" aria-label="Message actions">
@@ -115,6 +145,7 @@ export function createMessageFeed({
 
     const resolved = resolve(msg.content || "");
     const prose = stripThoughts(resolved);
+    const forkControl = forkMetaHtml(msg, opts.forkCurrent || 1, opts.forkTotal || 1);
 
     el.innerHTML = `
       <div class="rp-message__rail">
@@ -125,9 +156,10 @@ export function createMessageFeed({
           <button type="button" class="rp-message__title" aria-expanded="false" aria-controls="tray-${id}" title="Message actions">
             <span class="rp-message__speaker">${escapeHtml(speakerName(isUser))}</span>
           </button>
-          <span class="rp-message__meta"><span class="rp-message__time rp-tnum">${escapeHtml(timeText(msg.timestamp))}</span>${tokenMetaHtml(estimateTokens(msg.content || ""))}</span>
-          <button type="button" class="rp-message__more-btn" aria-expanded="false" aria-controls="tray-${id}" title="Message actions">⋯</button>
+          <span class="rp-message__meta"><span class="rp-message__time rp-tnum">${escapeHtml(timeText(msg.timestamp))}</span>${tokenMetaHtml(estimateTokens(msg.content || ""))}${forkControl}</span>
+          <button type="button" class="rp-message__more-btn" aria-expanded="false" aria-controls="tray-${id}" aria-label="Message actions" title="Message actions">⋯</button>
         </div>
+        ${thoughtHtml(msg)}
         <div class="rp-message__prose" id="prose-${id}">${formatProse(prose)}</div>
         ${trayHtml(msg, opts)}
       </div>`;
@@ -137,19 +169,23 @@ export function createMessageFeed({
   // --- reconciliation ------------------------------------------------------
 
   function signatureOf(msg) {
-    return `${(msg.content || "").length}:${(msg.forks || []).length}:${msg.timestamp || 0}`;
+    const content = msg.content || "";
+    return `${content.length}:${strSig(content)}:${(msg.forks || []).length}:${(msg.thought || "").length}:${msg.timestamp || 0}`;
   }
 
-  /**
-   * The signature a node was built with. It folds in the tray's shape, not just
-   * the text: a reply landing on the newest user turn removes its "Retry reply"
-   * action while the text is unchanged, so a text-only signature would leave a
-   * stale control behind.
-   */
+  function forkInfoFor(msg) {
+    if (typeof context.getForkInfo === "function") {
+      return context.getForkInfo(msg) || { current: 1, total: 1 };
+    }
+    const forks = Array.isArray(msg?.forks) ? msg.forks : [];
+    return { current: forks.length + 1, total: forks.length + 1 };
+  }
+
   function renderSignature(msg, opts) {
     const p = context.persona;
-    const ctxSig = `${context.charName || ""}:${p?.id || ""}:${p?.name || ""}:${p?.gender || ""}:${(p?.description || "").length}`;
-    return `${signatureOf(msg)}:${ctxSig}:${opts.showRetry ? "r" : ""}${opts.showReroll ? "R" : ""}${opts.showDelete ? "d" : ""}${opts.showFork ? "f" : ""}`;
+    const cardAvatar = context.card?.avatar || context.card?.data?.avatar || "";
+    const ctxSig = `${context.charName || ""}:${strSig(cardAvatar)}:${p?.id || ""}:${p?.name || ""}:${p?.gender || ""}:${strSig(p?.avatar || "")}:${strSig(p?.template || "")}:${strSig(p?.description || "")}`;
+    return `${signatureOf(msg)}:${ctxSig}:${opts.forkCurrent || 1}/${opts.forkTotal || 1}:${opts.showRetry ? "r" : ""}${opts.showReroll ? "R" : ""}${opts.showContinue ? "C" : ""}${opts.showRewind ? "W" : ""}${opts.showDelete ? "d" : ""}${opts.showFork ? "f" : ""}`;
   }
 
   /**
@@ -190,10 +226,16 @@ export function createMessageFeed({
     // rebuilt when its signature moves.
     const ordered = visible.map((msg, i) => {
       const id = String(msg.id);
+      const absIndex = start + i;
+      const forkInfo = forkInfoFor(msg);
       const opts = {
         showDelete: total > 1,
         showReroll: canReroll(messages, msg),
+        showContinue: msg.role === "assistant" && absIndex === total - 1,
+        showRewind: absIndex < total - 1,
         showFork: total > 1,
+        forkCurrent: forkInfo.current,
+        forkTotal: forkInfo.total,
         // The newest turn is the player's and nothing has answered it: its
         // generation failed or was interrupted. This is the durable recovery
         // affordance for that state.
@@ -222,8 +264,7 @@ export function createMessageFeed({
         more.className = "rp-feed-more";
         more.innerHTML = `<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm"></button>`;
         more.querySelector("button").addEventListener("click", () => {
-          windowSize += RENDER_STEP;
-          reconcile(lastMessages);
+          showMore(RENDER_STEP);
         });
       }
       more.querySelector("button").textContent =
@@ -268,6 +309,7 @@ export function createMessageFeed({
   }
 
   function clear() {
+    windowSize = MAX_RENDERED;
     nodes.clear();
     mount.textContent = "";
   }
@@ -302,6 +344,7 @@ export function createMessageFeed({
             <span class="rp-message__speaker">${escapeHtml(context.charName)}</span>
           </button>
           <span class="rp-message__meta"><span class="rp-stream-status">Writing</span></span>
+          <button type="button" class="rp-message__more-btn" aria-expanded="false" aria-controls="tray-${sid}" aria-label="Message actions" title="Message actions" disabled hidden>⋯</button>
         </div>
         <div class="rp-message__prose is-streaming" id="prose-${sid}" role="status" aria-live="polite" aria-busy="true">
           <div class="rp-stream-settled"></div><div class="rp-stream-tail"></div>
@@ -310,6 +353,24 @@ export function createMessageFeed({
     mount.appendChild(el);
     nodes.set(String(id), el);
     return { el, buffer: "", settledAt: 0, settledEl: el.querySelector(".rp-stream-settled"), tailEl: el.querySelector(".rp-stream-tail") };
+  }
+
+  /** Last blank-line paragraph split at/after `minPos` that is not inside an open fenced code block. */
+  function findSafeParagraphBoundary(text, minPos) {
+    let idx = text.lastIndexOf("\n\n");
+    while (idx > minPos) {
+      const prefix = text.slice(0, idx);
+      const fences = (prefix.match(/^[ \t]*```/gm) || []).length;
+      if (fences % 2 === 0) return idx;
+      idx = idx > 0 ? text.lastIndexOf("\n\n", idx - 1) : -1;
+    }
+    return -1;
+  }
+
+  function setStreamThinking(stream, elapsedSec = 0) {
+    const statusEl = stream?.el?.querySelector?.(".rp-stream-status");
+    if (!statusEl) return;
+    statusEl.textContent = elapsedSec > 0 ? `Thinking… (${elapsedSec}s)` : "Thinking…";
   }
 
   /**
@@ -321,15 +382,25 @@ export function createMessageFeed({
     if (!stream || !chunk) return;
     stream.buffer += chunk;
 
-    const stripped = stripThoughts(stream.buffer);
+    const extracted = extractThoughtBlocks(stream.buffer);
+    const prose = stripThoughts(resolve(stream.buffer));
+    const statusEl = stream.el?.querySelector?.(".rp-stream-status");
+    if (statusEl) {
+      if (extracted.isThinking && !prose.trim()) statusEl.textContent = "Thinking…";
+      else if (prose.trim()) statusEl.textContent = "Writing";
+    }
+    if (prose.length < stream.settledAt) {
+      stream.settledAt = 0;
+      stream.settledEl.textContent = "";
+    }
 
-    const boundary = stripped.lastIndexOf("\n\n");
+    const boundary = findSafeParagraphBoundary(prose, stream.settledAt);
     if (boundary > stream.settledAt) {
-      const delta = resolve(stripped.slice(stream.settledAt, boundary + 2));
+      const delta = prose.slice(stream.settledAt, boundary + 2);
       if (delta.trim()) stream.settledEl.insertAdjacentHTML("beforeend", formatProse(delta));
       stream.settledAt = boundary + 2;
     }
-    const tail = resolve(stripped.slice(stream.settledAt));
+    const tail = prose.slice(stream.settledAt);
     stream.tailEl.innerHTML = tail.trim() ? formatProse(tail) : "";
   }
 
@@ -343,6 +414,10 @@ export function createMessageFeed({
     const resolved = resolve(msg.content || "");
     const prose = stripThoughts(resolved);
     const proseEl = el.querySelector(".rp-message__prose");
+    const thoughtMarkup = thoughtHtml(msg);
+    if (thoughtMarkup) {
+      proseEl.insertAdjacentHTML("beforebegin", thoughtMarkup);
+    }
     // The order here is the whole point. The element is a live region with
     // `aria-busy="true"`, which tells assistive tech to hold its announcement
     // until the busy flag clears. Retiring the role and clearing the flag
@@ -357,18 +432,39 @@ export function createMessageFeed({
     proseEl.setAttribute("aria-busy", "false");
     retireLiveRegion(proseEl);
 
+    const realSid = safeId(msg.id);
+    proseEl.id = `prose-${realSid}`;
+
     const content = el.querySelector(".rp-message__content");
     const head = content.querySelector(".rp-message__head");
+    head.dataset.controls = `tray-${realSid}`;
+    head.querySelector(".rp-message__title")?.setAttribute("aria-controls", `tray-${realSid}`);
+    const moreBtn = head.querySelector(".rp-message__more-btn");
+    if (moreBtn) {
+      moreBtn.setAttribute("aria-controls", `tray-${realSid}`);
+      moreBtn.disabled = false;
+      moreBtn.hidden = false;
+    }
 
     const meta = head.querySelector(".rp-message__meta");
+    const forkInfo = forkInfoFor(msg);
     if (meta) {
       meta.querySelector(".rp-message__tokens")?.remove();
       meta.querySelector(".rp-message__forks")?.remove();
       const timeStr = `<span class="rp-message__time rp-tnum">${escapeHtml(timeText(msg.timestamp))}</span>`;
-      const tokens = tokenMetaHtml(estimateTokens(msg.content || "")) + forkMetaHtml((msg.forks || []).length);
+      const tokens = tokenMetaHtml(estimateTokens(msg.content || "")) + forkMetaHtml(msg, forkInfo.current, forkInfo.total);
       meta.innerHTML = `${timeStr}${tokens}`;
     }
-    const settledOpts = { showDelete: true, showReroll: true, showFork: true, showRetry: false };
+    const settledOpts = {
+      showDelete: true,
+      showReroll: true,
+      showContinue: true,
+      showRewind: false,
+      showFork: true,
+      showRetry: false,
+      forkCurrent: forkInfo.current,
+      forkTotal: forkInfo.total,
+    };
     content.insertAdjacentHTML("beforeend", trayHtml(msg, settledOpts));
     // The provisional stream key is replaced by the real message id, so the
     // next reconcile reuses this node instead of rebuilding it.
@@ -388,12 +484,20 @@ export function createMessageFeed({
   function updateMessage(msg) {
     const id = String(msg.id);
     const existing = nodes.get(id);
+    const idx = lastMessages.findIndex((m) => m.id === msg.id);
+    const forkInfo = forkInfoFor(msg);
     const opts = {
       showDelete: lastMessages.length > 1,
       showReroll: canReroll(lastMessages, msg),
+      showContinue: msg.role === "assistant" && idx === lastMessages.length - 1,
+      showRewind: idx >= 0 && idx < lastMessages.length - 1,
       showFork: lastMessages.length > 1,
+      showRetry: msg.role === "user" && lastMessages[lastMessages.length - 1]?.id === msg.id,
+      forkCurrent: forkInfo.current,
+      forkTotal: forkInfo.total,
     };
     const fresh = buildMessage(msg, opts);
+    fresh.dataset.sig = renderSignature(msg, opts);
     if (existing) {
       existing.replaceWith(fresh);
     } else {
@@ -429,8 +533,14 @@ export function createMessageFeed({
    */
   function showMore(step = RENDER_STEP) {
     if (windowSize >= lastMessages.length) return false;
+    const scroller = mount.parentElement;
+    const prevHeight = scroller ? scroller.scrollHeight : 0;
+    const prevTop = scroller ? scroller.scrollTop : 0;
     windowSize = Math.min(lastMessages.length, windowSize + step);
     reconcile(lastMessages);
+    if (scroller && scroller.scrollHeight > prevHeight) {
+      scroller.scrollTop = prevTop + (scroller.scrollHeight - prevHeight);
+    }
     return true;
   }
 
@@ -446,10 +556,14 @@ export function createMessageFeed({
       return;
     }
 
+    const toggleBtn = e.target.closest(".rp-message__title, .rp-message__more-btn");
     // Do not toggle if clicking an interactive control or selecting text
-    if (e.target.closest("button, a, input, textarea, select")) return;
-    const sel = typeof window.getSelection === "function" ? window.getSelection()?.toString() : "";
-    if (sel && sel.trim().length > 0) return;
+    if (!toggleBtn && e.target.closest("button, a, input, textarea, select")) return;
+    if (toggleBtn?.disabled) return;
+    if (!toggleBtn) {
+      const sel = typeof window.getSelection === "function" ? window.getSelection()?.toString() : "";
+      if (sel && sel.trim().length > 0) return;
+    }
 
     const card = e.target.closest(".rp-message");
     if (card) {
@@ -479,6 +593,7 @@ export function createMessageFeed({
     renderEmpty,
     clear,
     beginStream,
+    setStreamThinking,
     appendChunk,
     settleStream,
     failStream,

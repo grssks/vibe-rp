@@ -18,6 +18,8 @@ describe("choice UI drift-guard", () => {
   const panel = read("ui/chat/choice_panel.js");
   const boot = read("ui/chat/chat_boot.js");
   const engine = read("browser_engine.js");
+  const promptBuilder = read("prompt_builder.js");
+  const transport = read("llm_transport.js");
   const machine = read("ui/chat/turn_machine.js");
 
   test("panel, boot and engine call-sites keep their pinned shape", () => {
@@ -104,11 +106,11 @@ describe("choice UI drift-guard", () => {
     // choice generation is a separate, non-streaming request
     {
       expect(engine).toMatch(/static async generateChoices/);
-      expect(engine).toMatch(/stream:\s*false/);
+      expect(`${engine}\n${transport}`).toMatch(/stream:\s*false/);
     }
     // choice generation never touches the transcript or the ledger
     {
-      const body = engine.slice(engine.indexOf("static async generateChoices"), engine.indexOf("static #providerContextWindow"));
+      const body = engine.slice(engine.indexOf("static async generateChoices"), engine.indexOf("static #overflowReport"));
       expect(body).not.toMatch(/session\.messages\s*=/);
       expect(body).not.toMatch(/session\.ledger\s*=/);
       expect(body).not.toMatch(/session\.consumed\s*=/);
@@ -117,7 +119,7 @@ describe("choice UI drift-guard", () => {
     {
       // The RP prefix is built by buildSystemSections; the choice instruction must
       // never appear there.
-      const sections = engine.slice(engine.indexOf("export function buildSystemSections"), engine.indexOf("export function allocateContext"));
+      const sections = promptBuilder.slice(promptBuilder.indexOf("export function buildSystemSections"), promptBuilder.indexOf("export function formatSystemPrompt"));
       expect(sections).not.toContain("CHOICE_SYSTEM_PROMPT");
     }
   });

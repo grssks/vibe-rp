@@ -91,13 +91,13 @@ export function createTurnMachine({
     }
   }
 
-  async function streamTurn(promptHint, { persistPending = true } = {}) {
+  async function streamTurn(promptHint, { persistPending = true, isReroll = false, isContinue = false } = {}) {
     if (activeStream) return;
     setBusy(true);
-    // The reader's position at the moment the turn starts decides whether the
-    // reply is followed. Captured once, deliberately: a reader who scrolls up
-    // while the reply is arriving must not be dragged back down.
-    const autoFollow = isNearBottom();
+    const targetSessionId = controller.activeSession?.id ?? null;
+    // The reader's position decides whether the reply is followed: pause if
+    // the reader scrolls up mid-stream, resume if they return to the bottom.
+    let autoFollow = isNearBottom();
     let settledOk = false;
     const streamId = `msg_${clockNow() + 1}`;
     const stream = feed.beginStream(streamId);
@@ -118,23 +118,40 @@ export function createTurnMachine({
       });
     };
 
+    let thinkingStartedAt = 0;
+    const onChunk = (chunk) => {
+      if (typeof chunk !== "string" || !chunk) return;
+      if (autoFollow && !isNearBottom()) autoFollow = false;
+      else if (!autoFollow && isNearBottom()) autoFollow = true;
+      partial.content += chunk;
+      feed.appendChunk(stream, chunk);
+      follow();
+    };
+    const onNotice = (notice) => {
+      if (showToast) showToast(notice, "info");
+    };
+    const onReasoning = (rChunk) => {
+      if (!thinkingStartedAt) thinkingStartedAt = clockNow();
+      const elapsedSec = Math.max(1, Math.round((clockNow() - thinkingStartedAt) / 1000));
+      feed.setStreamThinking?.(stream, elapsedSec, rChunk);
+      if (notifier && typeof notifier.setStatus === "function") {
+        notifier.setStatus("Thinking…");
+      }
+    };
+
     try {
-      const assistantMsg = await controller.streamResponse(
-        (chunk) => {
-          if (typeof chunk !== "string" || !chunk) return;
-          partial.content += chunk;
-          feed.appendChunk(stream, chunk);
-          follow();
-        },
-        (notice) => {
-          if (showToast) showToast(notice, "info");
-        },
-        { persistPending },
-      );
+      const assistantMsg = isContinue
+        ? await controller.continueResponse(onChunk, onNotice, { onReasoning })
+        : await controller.streamResponse(onChunk, onNotice, { persistPending, onReasoning });
       if (assistantMsg) Object.assign(partial, assistantMsg);
-      // A Stop mid-stream may leave the engine having persisted the partial
-      // reply; keep it as a real turn rather than throwing the text away.
-      feed.settleStream(stream, partial);
+      if (isContinue) {
+        feed.failStream(stream);
+      } else {
+        // A Stop mid-stream may leave the engine having persisted the partial
+        // reply; keep it as a real turn rather than throwing the text away.
+        feed.settleStream(stream, partial);
+      }
+      if (turn.stopped && showToast) showToast("Stopped.", "info");
       // Reconcile once so tray actions that depend on being the newest turn
       // (the "Retry reply" action on a previously unanswered user turn) are
       // recomputed now that a reply exists.
@@ -143,6 +160,7 @@ export function createTurnMachine({
       clearComposerInput(promptHint);
     } catch (err) {
       feed.failStream(stream);
+      if (isReroll) onSettled();
       if (turn.stopped) {
         if (showToast) showToast("Stopped.", "info");
       } else {
@@ -152,7 +170,13 @@ export function createTurnMachine({
             notifier.toast(described.text, {
               tone: "error",
               actionLabel: described.retry ? "Retry" : "",
-              onAction: described.retry ? () => streamTurn(promptHint, { persistPending }) : null,
+              onAction: described.retry
+                ? () => {
+                    if ((controller.activeSession?.id ?? null) !== targetSessionId) return;
+                    if (controller.pendingUserTurn()) retryUnansweredTurn();
+                    else if (isReroll) rerollLastTurn();
+                  }
+                : null,
             });
           } else if (showToast) {
             showToast(described.text, "error");
@@ -209,7 +233,7 @@ export function createTurnMachine({
     const lastUserPrompt = controller.reroll();
     if (lastUserPrompt === null) return;
     onSettled();
-    await streamTurn(lastUserPrompt);
+    await streamTurn(lastUserPrompt, { persistPending: false, isReroll: true });
   }
 
   /**
@@ -225,11 +249,21 @@ export function createTurnMachine({
     await streamTurn(pending.content);
   }
 
+  /** Continues the trailing assistant message in-place without appending a user turn. */
+  async function continueLastTurn() {
+    if (composer.busy || activeStream) return;
+    const msgs = controller.messages || [];
+    const last = msgs[msgs.length - 1];
+    if (!last || last.role !== "assistant") return;
+    await streamTurn(null, { isContinue: true });
+  }
+
   return {
     streamTurn,
     submitTurn,
     rerollLastTurn,
     retryUnansweredTurn,
+    continueLastTurn,
     stopTurn,
     describeFailure,
     get busy() {

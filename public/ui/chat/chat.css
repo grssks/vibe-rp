@@ -1020,14 +1020,30 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
 }
 
 /* Inline editor keeps the reading column. */
-.inline-msg-editor {
+.rp-inline-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   max-width: var(--measure);
 }
 
-.inline-msg-editor .rp-textarea {
+.rp-inline-editor .rp-textarea {
   font-family: var(--font-prose);
   font-size: var(--text-lg);
   line-height: var(--leading-prose);
+}
+
+.rp-inline-editor__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.rp-choice-card__kind {
+  font-size: var(--text-2xs);
+  margin-left: auto;
+  align-self: center;
+  opacity: 0.75;
 }
 /* Toast placement is shared (design/components.css): the region hangs from the
    top of the viewport on every surface, so it never fights the on-screen
@@ -1051,6 +1067,97 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
 /* Sheet that is raised from the composer: keep it above the dock. */
 .rp-sheet[hidden] {
   display: none;
+}
+
+/* Collapsible reasoning / thinking block */
+.rp-message__thought {
+  margin-bottom: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--surface-raised);
+  border-left: 2px solid var(--accent-annotation);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.rp-message__thought-summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--accent-annotation);
+  user-select: none;
+}
+
+.rp-message__thought-body {
+  margin-top: var(--space-2);
+  white-space: pre-wrap;
+  font-family: var(--font-prose);
+  line-height: var(--leading-prose);
+}
+
+/* Inline message revision / greeting switcher (< 1 / N >) */
+.rp-message__forks {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.rp-fork-count {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+/* Choice Mode inline prose preview & Edit button */
+.rp-choices__item {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.rp-choices__item > .rp-choices__option {
+  flex: 1;
+  min-width: 0;
+}
+
+.rp-choices__prose {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  line-height: var(--leading-prose);
+  white-space: normal;
+}
+
+.rp-choices__edit-btn {
+  align-self: center;
+  flex: none;
+}
+
+/* Context Inspector interactive controls */
+.rp-ledger__controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rp-ledger__label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.rp-ledger__textarea {
+  width: 100%;
+  font-family: var(--font-prose);
+  font-size: var(--text-sm);
+}
+
+.rp-ledger__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 /* --------------------------------------------------- coarse pointers ---- */
