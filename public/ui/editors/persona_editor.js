@@ -72,8 +72,10 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     el("option", { value: "female", text: "Female (she / her / hers)" }),
     el("option", { value: "neutral", text: "Neutral (they / them / theirs)" }),
     el("option", { value: "it", text: "Neuter (it / its)" }),
+    el("option", { value: "custom", text: "Custom pronouns…" }),
   ]);
-  genderSelect.value = persona?.gender || "";
+  const hasCustomPronouns = Boolean(persona?.pronouns && String(persona.pronouns).trim());
+  genderSelect.value = hasCustomPronouns ? "custom" : (persona?.gender || "");
 
   const pronounsInput = el("input", {
     id: "rp-persona-pronouns",
@@ -81,11 +83,22 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     type: "text",
     maxlength: 80,
     value: persona?.pronouns || "",
-    placeholder: "Custom pronouns (e.g. they/them/their/theirs/themself)",
+    placeholder: "e.g. they/them/their/theirs/themself",
+  });
+
+  const pronounsField = el("div", { class: "rp-field", hidden: genderSelect.value !== "custom" }, [
+    el("label", { class: "rp-label", for: "rp-persona-pronouns", text: "Custom pronouns" }),
+    pronounsInput,
+  ]);
+
+  genderSelect.addEventListener("change", () => {
+    const isCustom = genderSelect.value === "custom";
+    pronounsField.hidden = !isCustom;
+    if (isCustom) pronounsInput.focus();
   });
 
   const templateTokens = el("span", {
-    class: "rp-badge rp-badge--muted rp-tnum",
+    class: "rp-badge rp-badge--count rp-tnum",
     text: `~${estimateTokens(persona?.template || "")} tokens`,
   });
 
@@ -161,10 +174,7 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
           el("label", { class: "rp-label", for: "rp-persona-gender", text: "Gender & pronouns" }),
           genderSelect,
         ]),
-        el("div", { class: "rp-field" }, [
-          el("label", { class: "rp-label", for: "rp-persona-pronouns", text: "Custom pronouns (optional)" }),
-          pronounsInput,
-        ]),
+        pronounsField,
       ]),
     ]),
     el("div", { class: "rp-field" }, [
@@ -193,15 +203,18 @@ export function openPersonaEditor({ persona = null, onSave, compressImage, host 
     nameInput,
     allowEmptyName: Boolean(persona?.isDefault),
     requiredMessage: "A persona name is required.",
-    buildPayload: (name) => ({
-      id: persona?.id || `persona_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: name || (persona?.isDefault ? "You" : name),
-      description: descInput.value.trim(),
-      gender: genderSelect.value || undefined,
-      pronouns: pronounsInput.value.trim() || undefined,
-      template: templateInput.value,
-      avatar: avatar || undefined,
-    }),
+    buildPayload: (name) => {
+      const isCustom = genderSelect.value === "custom";
+      return {
+        id: persona?.id || `persona_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: name || (persona?.isDefault ? "You" : name),
+        description: descInput.value.trim(),
+        gender: isCustom ? undefined : (genderSelect.value || undefined),
+        pronouns: isCustom ? (pronounsInput.value.trim() || undefined) : undefined,
+        template: templateInput.value,
+        avatar: avatar || undefined,
+      };
+    },
     successToast: (name) => `Persona "${name || "You"}" saved.`,
     errorPrefix: "Could not save the persona",
     onSave,

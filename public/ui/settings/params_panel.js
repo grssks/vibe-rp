@@ -47,7 +47,6 @@ export function mountParamsPanel(root, { getParams, saveParams } = {}) {
   const rows = PARAM_SPECS.map((spec) => ({
     ...spec,
     sliderEl: qs(root, `#${spec.slider}`),
-    numEl: qs(root, `#${spec.slider}-num`),
     readoutEl: qs(root, `#${spec.readout}`),
   })).filter((row) => row.sliderEl);
 
@@ -55,9 +54,6 @@ export function mountParamsPanel(root, { getParams, saveParams } = {}) {
 
   function paint(row) {
     if (row.readoutEl) row.readoutEl.textContent = formatValue(row.sliderEl.value, row.decimals);
-    if (row.numEl && row.numEl.value !== String(row.sliderEl.value)) {
-      row.numEl.value = formatValue(row.sliderEl.value, row.decimals);
-    }
   }
 
   function read(row) {
@@ -76,23 +72,6 @@ export function mountParamsPanel(root, { getParams, saveParams } = {}) {
       row.sliderEl.removeEventListener("input", onInput);
       row.sliderEl.removeEventListener("change", onChange);
     });
-    if (row.numEl) {
-      const onNumChange = () => {
-        const raw = Number(row.numEl.value);
-        if (!Number.isFinite(raw)) {
-          paint(row);
-          return;
-        }
-        const min = row.sliderEl.min !== "" ? Number(row.sliderEl.min) : -Infinity;
-        const max = row.sliderEl.max !== "" ? Number(row.sliderEl.max) : Infinity;
-        const clamped = Math.min(max, Math.max(min, raw));
-        row.sliderEl.value = String(clamped);
-        paint(row);
-        saveParams?.({ [row.key]: read(row) });
-      };
-      row.numEl.addEventListener("change", onNumChange);
-      cleanups.push(() => row.numEl.removeEventListener("change", onNumChange));
-    }
   }
 
   const resetBtn = qs(root, "#popup-reset-params-btn");

@@ -426,22 +426,42 @@ describe("Settings Profiles, Numeric Params, Custom Pronouns & Backup Options", 
     expect(sanitized.data.cookies).toEqual([]);
   });
 
-  test("Settings modal renders connection profiles, custom aux inputs, numeric params & data options", async () => {
-    setupDomWithBody();
+  test("Settings modal renders connection profiles, aux model toggles, JanitorAI session & data options, and conditional custom pronouns", async () => {
+    const doc = setupDomWithBody();
     installMemStorage();
     const { openSettingsModal } = await import("../public/ui/settings/settings_modal.js");
+    const { openPersonaEditor } = await import("../public/ui/editors/persona_editor.js");
     const modal = openSettingsModal({
       getSettings: () => ({ ...TEST_SETTINGS, apiProfiles: [] }),
       saveSettings: () => {},
+      saveSession: () => ({ ok: true }),
       listPersonas: async () => [],
       listDirectives: async () => [],
     });
     expect(byId(modal.element, "popup-profile-select")).not.toBeNull();
     expect(byId(modal.element, "popup-choice-model-input")).not.toBeNull();
     expect(byId(modal.element, "popup-summary-model-input")).not.toBeNull();
-    expect(byId(modal.element, "popup-slider-temp-num")).not.toBeNull();
+    expect(byId(modal.element, "popup-slider-temp-num")).toBeNull();
+    expect(byId(modal.element, "popup-import-session-wrap")).not.toBeNull();
     expect(byId(modal.element, "rp-data-exclude-secrets")).not.toBeNull();
     expect(byId(modal.element, "rp-data-restore-mode")).not.toBeNull();
     modal.close();
+
+    // Custom pronouns input stays hidden unless "custom" is selected
+    const pDone = openPersonaEditor({ persona: { id: "p1", name: "Alex", gender: "male" } });
+    const genderEl = byId(doc.body, "rp-persona-gender") as unknown as {
+      value: string;
+      dispatch: (t: string) => void;
+    };
+    const pronounsEl = byId(doc.body, "rp-persona-pronouns") as unknown as {
+      parentNode: { hidden: boolean };
+    };
+    expect(pronounsEl.parentNode.hidden).toBe(true);
+    genderEl.value = "custom";
+    genderEl.dispatch("change");
+    expect(pronounsEl.parentNode.hidden).toBe(false);
+    const closeBtn = (doc.body.querySelector('[data-role="close"]') as unknown as { dispatch: (t: string) => void });
+    closeBtn?.dispatch("click");
+    await pDone;
   });
 });

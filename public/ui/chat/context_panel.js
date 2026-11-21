@@ -385,20 +385,20 @@ export function renderContextPanel({
     ? `<section class="rp-ledger__group rp-ledger__controls" aria-label="Scene memory and export">` +
       `<h3 class="rp-ledger__group-title">Scene memory &amp; export</h3>` +
       `<label class="rp-ledger__label" for="rp-context-authors-note">Author's Note (injected into recent scene)</label>` +
-      `<textarea id="rp-context-authors-note" class="rp-input rp-ledger__textarea" rows="2" data-context-authors-note placeholder="Optional scene guidance or tone reminder…">${escapeHtml(authorsNote || "")}</textarea>` +
+      `<textarea id="rp-context-authors-note" class="rp-textarea rp-ledger__textarea" rows="2" data-context-authors-note placeholder="Optional scene guidance or tone reminder…">${escapeHtml(authorsNote || "")}</textarea>` +
       `<div class="rp-ledger__actions">` +
-      `<button type="button" class="rp-btn rp-btn--small" data-context-save-note>Save note</button>` +
+      `<button type="button" class="rp-btn rp-btn--secondary rp-btn--sm" data-context-save-note>Save note</button>` +
       `</div>` +
       `<label class="rp-ledger__label" for="rp-context-ledger">Continuity recap</label>` +
-      `<textarea id="rp-context-ledger" class="rp-input rp-ledger__textarea" rows="4" data-context-ledger placeholder="No continuity recap yet.">${escapeHtml(ledgerText || "")}</textarea>` +
+      `<textarea id="rp-context-ledger" class="rp-textarea rp-ledger__textarea" rows="4" data-context-ledger placeholder="No continuity recap yet.">${escapeHtml(ledgerText || "")}</textarea>` +
       `<div class="rp-ledger__actions">` +
-      `<button type="button" class="rp-btn rp-btn--small" data-context-save-ledger>Save recap</button>` +
-      `<button type="button" class="rp-btn rp-btn--small" data-context-fold${canFold ? "" : " disabled"}>Fold now</button>` +
-      `<button type="button" class="rp-btn rp-btn--small" data-context-rebuild-ledger>Rebuild recap</button>` +
+      `<button type="button" class="rp-btn rp-btn--secondary rp-btn--sm" data-context-save-ledger>Save recap</button>` +
+      `<button type="button" class="rp-btn rp-btn--secondary rp-btn--sm" data-context-fold${canFold ? "" : " disabled"}>Fold now</button>` +
+      `<button type="button" class="rp-btn rp-btn--secondary rp-btn--sm" data-context-rebuild-ledger>Rebuild recap</button>` +
       `</div>` +
       `<div class="rp-ledger__actions">` +
-      `<button type="button" class="rp-btn rp-btn--small rp-btn--ghost" data-context-export="${escapeAttr("md")}">Export Markdown</button>` +
-      `<button type="button" class="rp-btn rp-btn--small rp-btn--ghost" data-context-export="${escapeAttr("json")}">Export JSON</button>` +
+      `<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-context-export="${escapeAttr("md")}">Export Markdown</button>` +
+      `<button type="button" class="rp-btn rp-btn--ghost rp-btn--sm" data-context-export="${escapeAttr("json")}">Export JSON</button>` +
       `</div>` +
       `</section>`
     : "";

@@ -283,10 +283,11 @@ export function createChoicePanel({
     keyEl.classList.add("rp-choice-card__key");
     const textEl = el("span", { class: "rp-choices__text", text: choice.text && choice.label ? choice.label : choice.text });
     textEl.classList.add("rp-choice-card__text");
-    btn.append(keyEl, textEl);
+    const contentEl = el("span", { class: "rp-choices__content" }, [textEl]);
     if (choice.text && choice.label && choice.text !== choice.label) {
-      btn.append(el("span", { class: "rp-choices__prose rp-choice-card__prose", text: choice.text }));
+      contentEl.append(el("span", { class: "rp-choices__prose rp-choice-card__prose", text: choice.text }));
     }
+    btn.append(keyEl, contentEl);
     let badgeText = "";
     const povLower = (choice.pov || "").toLowerCase();
     const isPlayerPov = povLower === "player" || povLower === "user" || povLower === "me";

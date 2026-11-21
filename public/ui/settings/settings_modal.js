@@ -38,19 +38,7 @@ function sliderRow({ id, valueId, label, hint, min, max, step, value }) {
       el("label", { class: "rp-label", for: id, text: label }),
       el("span", { class: "rp-badge rp-badge--count rp-tnum", id: valueId, text: String(value) }),
     ]),
-    el("div", { class: "rp-slider-row" }, [
-      el("input", { type: "range", id, class: "rp-range", min, max, step, value }),
-      el("input", {
-        type: "number",
-        id: `${id}-num`,
-        class: "rp-input rp-slider-row__num rp-tnum",
-        min,
-        max,
-        step,
-        value,
-        attrs: { "aria-label": `${label} numeric value` },
-      }),
-    ]),
+    el("input", { type: "range", id, class: "rp-range", min, max, step, value }),
     el("p", { class: "rp-help", text: hint }),
   ]);
 }
@@ -59,10 +47,10 @@ const PARAM_FIELDS = [
   sliderRow({ id: "popup-slider-temp", valueId: "popup-val-temp", label: "Temperature", hint: "Lower is focused and deterministic; higher is creative and descriptive.", min: 0, max: 2, step: 0.05, value: 0.95 }),
   sliderRow({ id: "popup-slider-topp", valueId: "popup-val-topp", label: "Top P", hint: "Nucleus sampling: considers only the top P probability mass. 1 sends the provider default.", min: 0.1, max: 1, step: 0.05, value: 1 }),
   sliderRow({ id: "popup-slider-minp", valueId: "popup-val-minp", label: "Min P", hint: "Trims low-probability noise without truncating creative tails. 0 sends the provider default.", min: 0, max: 0.5, step: 0.01, value: 0 }),
-  sliderRow({ id: "popup-slider-tokens", valueId: "popup-val-tokens", label: "Max response tokens", hint: "The longest reply the model may write each turn. 1200 leaves room for a full reply plus the model's own thinking.", min: 64, max: 8192, step: 64, value: 1200 }),
+  sliderRow({ id: "popup-slider-tokens", valueId: "popup-val-tokens", label: "Max response tokens", hint: "The longest reply the model may write each turn. 1200 leaves room for a full reply plus the model's own thinking.", min: 100, max: 8200, step: 50, value: 1200 }),
   sliderRow({ id: "popup-slider-freq", valueId: "popup-val-freq", label: "Frequency penalty", hint: "Higher values reduce repetitive verbal tics. 0 sends the provider default.", min: -2, max: 2, step: 0.05, value: 0 }),
   sliderRow({ id: "popup-slider-pres", valueId: "popup-val-pres", label: "Presence penalty", hint: "Encourages new topics and vocabulary. 0 sends the provider default.", min: -2, max: 2, step: 0.05, value: 0 }),
-  sliderRow({ id: "popup-slider-context", valueId: "popup-val-context", label: "Context window", hint: "How much the model can hold at once. Match your model's real window; older turns are summarized into a recap once this fills. Lowering it mid-chat makes the model re-read the whole conversation once.", min: 2048, max: 262144, step: 1024, value: 65536 }),
+  sliderRow({ id: "popup-slider-context", valueId: "popup-val-context", label: "Context window", hint: "How much the model can hold at once. Match your model's real window; older turns are summarized into a recap once this fills. Lowering it mid-chat makes the model re-read the whole conversation once.", min: 2048, max: 262144, step: 2048, value: 65536 }),
 ];
 
 const TABS = [
@@ -99,13 +87,15 @@ export function openSettingsModal(options = {}) {
       "Connect any OpenAI-compatible completions API. The base URL, key, and model are yours to fill in; settings stay in this browser."
     ),
     el("div", { class: "rp-field" }, [
-      el("label", { class: "rp-label", for: "popup-profile-select", text: "Connection profiles" }),
-      el("div", { class: "rp-settings__inline-actions" }, [
-        el("select", { id: "popup-profile-select", class: "rp-select" }),
-        el("button", { type: "button", id: "popup-save-profile-btn", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Save profile" }),
-        el("button", { type: "button", id: "popup-delete-profile-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Delete" }),
-        el("button", { type: "button", id: "popup-test-conn-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Test connection" }),
+      el("div", { class: "rp-settings__list-head" }, [
+        el("label", { class: "rp-label", for: "popup-profile-select", text: "Connection profiles" }),
+        el("div", { class: "rp-settings__inline-actions" }, [
+          el("button", { type: "button", id: "popup-test-conn-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Test connection" }),
+          el("button", { type: "button", id: "popup-save-profile-btn", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Save profile" }),
+          el("button", { type: "button", id: "popup-delete-profile-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Delete" }),
+        ]),
       ]),
+      el("select", { id: "popup-profile-select", class: "rp-select" }),
     ]),
     el("div", { class: "rp-field" }, [
       el("label", { class: "rp-label", for: "popup-api-endpoint", text: "API base URL" }),
@@ -136,24 +126,32 @@ export function openSettingsModal(options = {}) {
       el("p", { class: "rp-help", text: "Used to generate prose, narration and dialogue." }),
     ]),
     el("div", { id: "popup-choice-model-wrap", class: "rp-field" }, [
-      el("label", { class: "rp-label", for: "popup-choice-model-select", text: "Choice generator model" }),
+      el("div", { class: "rp-settings__list-head" }, [
+        el("label", { class: "rp-label", for: "popup-choice-model-select", text: "Choice generator model" }),
+        el("button", { type: "button", id: "popup-custom-choice-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+      ]),
       el("select", { id: "popup-choice-model-select", class: "rp-select" }),
       el("input", {
         type: "text",
         id: "popup-choice-model-input",
         class: "rp-input",
-        placeholder: "Or type custom choice model ID (optional)",
+        placeholder: "Type choice model ID (optional)",
+        attrs: { hidden: "true" },
       }),
       el("p", { class: "rp-help", text: "Dedicated model for generating Choice Mode options. Defaults to main model." }),
     ]),
     el("div", { class: "rp-field" }, [
-      el("label", { class: "rp-label", for: "popup-summary-model-select", text: "Recap model" }),
+      el("div", { class: "rp-settings__list-head" }, [
+        el("label", { class: "rp-label", for: "popup-summary-model-select", text: "Recap model" }),
+        el("button", { type: "button", id: "popup-custom-summary-model-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Type model" }),
+      ]),
       el("select", { id: "popup-summary-model-select", class: "rp-select" }),
       el("input", {
         type: "text",
         id: "popup-summary-model-input",
         class: "rp-input",
-        placeholder: "Or type custom recap model ID (optional)",
+        placeholder: "Type recap model ID (optional)",
+        attrs: { hidden: "true" },
       }),
       el("p", { class: "rp-help", text: "Writes the recap that older turns are summarized into. It reads and merges rather than writing prose, so a cheaper model usually does it well. Defaults to main model." }),
     ]),
@@ -188,15 +186,24 @@ export function openSettingsModal(options = {}) {
     ...(options.saveSession
       ? [
           el("details", { class: "rp-field rp-settings__divider rp-SessionImport", id: "popup-import-session-wrap" }, [
-            el("summary", { class: "rp-label", text: "Character-page import session (optional)" }),
-            el("p", { id: "popup-session-status", class: "rp-help", text: "No session imported." }),
+            el("summary", { class: "rp-label", text: "JanitorAI session import (optional)" }),
+            el("p", { id: "popup-session-status", class: "rp-help", text: "No JanitorAI session imported." }),
             el("textarea", {
               id: "popup-import-session-input",
               class: "rp-textarea rp-textarea--mono",
               rows: 3,
-              placeholder: "Paste exported session cookies JSON",
+              placeholder: "Paste exported JanitorAI cookies JSON from Cookie-Editor",
             }),
-            el("p", { class: "rp-help", text: "Grants access to fetch full character definitions from character pages. Treat it like a password." }),
+            el("p", { class: "rp-help" }, [
+              el("span", { text: "Unlocks full character definitions when importing JanitorAI character URLs. Use the " }),
+              el("a", {
+                href: "https://cookie-editor.com/",
+                target: "_blank",
+                rel: "noopener noreferrer",
+                text: "Cookie-Editor",
+              }),
+              el("span", { text: " browser extension on janitorai.com to export your cookies as JSON, then paste them above. Treat this like a password." }),
+            ]),
             el("div", { class: "rp-settings__inline-actions" }, [
               el("button", { type: "button", id: "popup-save-import-session-btn", class: "rp-btn rp-btn--secondary rp-btn--sm", text: "Save session" }),
               el("button", { type: "button", id: "popup-refresh-session-btn", class: "rp-btn rp-btn--ghost rp-btn--sm", text: "Refresh token" }),

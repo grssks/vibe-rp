@@ -1120,6 +1120,13 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
   min-width: 0;
 }
 
+.rp-choices__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
 .rp-choices__prose {
   display: block;
   margin-top: var(--space-1);

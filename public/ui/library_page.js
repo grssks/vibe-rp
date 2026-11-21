@@ -211,11 +211,15 @@ function triggerBlobDownload(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function openEditor(card = null) {
+async function openEditor(card = null) {
+  const [personas, directives] = await Promise.all([
+    LocalDb.getAllPersonas(),
+    LocalDb.getAllDirectives(),
+  ]);
   openCardEditor({
     card,
-    personas: LocalDb.getAllPersonas(),
-    directives: LocalDb.getAllDirectives(),
+    personas,
+    directives,
     host,
     onSave: (payload) => controller.saveCard(payload),
   });

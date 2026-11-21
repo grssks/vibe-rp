@@ -70,8 +70,10 @@ export function mountEnginePanel(root, options = {}) {
   const customModelBtn = qs(root, "#popup-custom-model-btn");
   const choiceSelect = qs(root, "#popup-choice-model-select");
   const choiceInput = qs(root, "#popup-choice-model-input");
+  const customChoiceBtn = qs(root, "#popup-custom-choice-model-btn");
   const summarySelect = qs(root, "#popup-summary-model-select");
   const summaryInput = qs(root, "#popup-summary-model-input");
+  const customSummaryBtn = qs(root, "#popup-custom-summary-model-btn");
   const reasoningSelect = qs(root, "#popup-reasoning-effort");
   const deliberationSelect = qs(root, "#popup-choice-deliberation");
   const fetchBtn = qs(root, "#popup-fetch-models-btn");
@@ -150,15 +152,15 @@ export function mountEnginePanel(root, options = {}) {
     try {
       const raw = localStorage.getItem(SESSION_STORAGE_KEY);
       if (!raw) {
-        sessionStatus.textContent = "No session imported.";
+        sessionStatus.textContent = "No JanitorAI session imported.";
         return;
       }
       const parsed = JSON.parse(raw);
       const exp = parsed?.expiresAt ? new Date(parsed.expiresAt * 1000).toLocaleString() : "unknown expiry";
       const expired = parsed?.expiresAt && parsed.expiresAt * 1000 <= Date.now();
-      sessionStatus.textContent = expired ? `Session expired (${exp}).` : `Session active (expires ${exp}).`;
+      sessionStatus.textContent = expired ? `JanitorAI session expired (${exp}).` : `JanitorAI session active (expires ${exp}).`;
     } catch {
-      sessionStatus.textContent = "Stored session could not be read.";
+      sessionStatus.textContent = "Stored JanitorAI session could not be read.";
     }
   }
 
@@ -183,36 +185,41 @@ export function mountEnginePanel(root, options = {}) {
     renderSessionStatus();
   }
 
-  if (customModelBtn && modelInput && modelSelect) {
-    on(customModelBtn, "click", () => {
-      const isInputActive = !modelInput.hidden;
+  function bindCustomModelToggle(btn, input, select) {
+    if (!btn || !input || !select) return;
+    on(btn, "click", () => {
+      const isInputActive = !input.hidden;
       if (isInputActive) {
-        modelInput.hidden = true;
-        modelSelect.hidden = false;
-        customModelBtn.textContent = "Type model";
+        input.hidden = true;
+        select.hidden = false;
+        btn.textContent = "Type model";
       } else {
-        modelInput.value = modelSelect.value || "";
-        modelInput.hidden = false;
-        modelSelect.hidden = true;
-        customModelBtn.textContent = "Select from list";
-        modelInput.focus();
+        input.value = select.value || "";
+        input.hidden = false;
+        select.hidden = true;
+        btn.textContent = "Select from list";
+        input.focus();
       }
     });
 
-    on(modelInput, "input", () => {
-      const val = modelInput.value.trim();
-      if (val && modelSelect.options) {
-        let opt = Array.from(modelSelect.options).find((o) => o.value === val);
+    on(input, "input", () => {
+      const val = input.value.trim();
+      if (val && select.options) {
+        let opt = Array.from(select.options).find((o) => o.value === val);
         if (!opt) {
           opt = document.createElement("option");
           opt.value = val;
           opt.textContent = val;
-          modelSelect.appendChild(opt);
+          select.appendChild(opt);
         }
-        modelSelect.value = val;
+        select.value = val;
       }
     });
   }
+
+  bindCustomModelToggle(customModelBtn, modelInput, modelSelect);
+  bindCustomModelToggle(customChoiceBtn, choiceInput, choiceSelect);
+  bindCustomModelToggle(customSummaryBtn, summaryInput, summarySelect);
 
   on(fetchBtn, "click", async () => {
     if (!fetchBtn) return;
@@ -253,8 +260,12 @@ export function mountEnginePanel(root, options = {}) {
     const rawModel = (modelInput && !modelInput.hidden && modelInput.value?.trim())
       ? modelInput.value.trim()
       : (modelSelect?.value ?? "");
-    const rawChoice = choiceInput?.value?.trim() || choiceSelect?.value || "";
-    const rawSummary = summaryInput?.value?.trim() || summarySelect?.value || "";
+    const rawChoice = (choiceInput && !choiceInput.hidden && choiceInput.value?.trim())
+      ? choiceInput.value.trim()
+      : (choiceSelect?.value ?? "");
+    const rawSummary = (summaryInput && !summaryInput.hidden && summaryInput.value?.trim())
+      ? summaryInput.value.trim()
+      : (summarySelect?.value ?? "");
     saveSettings?.({
       apiEndpoint: endpoint?.value.trim() ?? "",
       apiKey: apiKey?.value.trim() ?? "",

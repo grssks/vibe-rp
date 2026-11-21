@@ -510,7 +510,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
   const editBtn = handlers.onEditCard
     ? el("button", {
         type: "button",
-        class: "rp-btn rp-btn--ghost rp-btn--sm",
+        class: "rp-btn rp-btn--secondary rp-btn--sm",
         text: "Edit",
         attrs: { "data-detail-edit": "true" },
       })
@@ -553,6 +553,13 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
     : null;
   exportPngBtn?.addEventListener("click", () => handlers.onExportCardPng?.(card));
 
+  const cardActionRow = [editBtn, cloneBtn, exportJsonBtn, exportPngBtn].filter(Boolean);
+  if (cardActionRow.length) {
+    hero.querySelector(".rp-detail__hero-meta")?.appendChild(
+      el("div", { class: "rp-actions-row" }, cardActionRow)
+    );
+  }
+
   const newChatBtn = el("button", {
     type: "button",
     class: "rp-btn rp-btn--primary",
@@ -565,11 +572,7 @@ export function openDetailModal({ card, persona = null, sessions = [], loadSessi
 
   const footer = el("footer", { class: "rp-dialog__footer" }, [
     deleteBtn,
-    el(
-      "div",
-      { class: "rp-detail__footer-actions" },
-      [editBtn, cloneBtn, exportJsonBtn, exportPngBtn, historyBtn, newChatBtn].filter(Boolean),
-    ),
+    el("div", { class: "rp-detail__footer-actions" }, [historyBtn, newChatBtn]),
   ]);
 
   const dialog = el("dialog", { class: "rp-dialog", attrs: { "aria-labelledby": "rp-detail-name" } }, [
