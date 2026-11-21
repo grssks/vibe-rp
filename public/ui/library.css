@@ -132,15 +132,8 @@
   line-height: 1;
 }
 
-/* Clamp the blurb to three lines with a real ellipsis. The text is already cut
-   at a word boundary in the renderer, so the clamp never splits a word. */
-.rp-card__body {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
+/* The three-line clamp lives in components.css; only the empty variant and
+   the phone's two-line override belong in this layer. */
 .rp-card__body--empty {
   color: var(--ink-faint);
   font-style: italic;
@@ -174,10 +167,12 @@
   cursor: pointer;
 }
 
-.rp-card--add:hover {
-  border-color: var(--accent-annotation);
-  color: var(--accent-annotation);
-  background-color: var(--annotation-subtle);
+@media (hover: hover) and (pointer: fine) {
+  .rp-card--add:hover {
+    border-color: var(--accent-annotation);
+    color: var(--accent-annotation);
+    background-color: var(--annotation-subtle);
+  }
 }
 
 
@@ -768,8 +763,10 @@
   color: var(--ink-muted);
 }
 
-.rp-topbar .rp-btn--icon:hover {
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .rp-topbar .rp-btn--icon:hover {
+    color: var(--ink);
+  }
 }
 
 /* A search input carries two pieces of native chrome: an inner focus ring and
@@ -797,16 +794,7 @@ input[type="search"]::-webkit-search-results-decoration {
 }
 
 /* ============================================================== TOAST == */
-
-.rp-toast__message {
-  flex: 1;
-  min-width: 0;
-}
-
-.rp-toast__close,
-.rp-toast__action {
-  flex: none;
-}
+/* Toast geometry lives in components.css so both pages use the same rules. */
 
 .rp-card__fav {
   color: var(--ink-faint);

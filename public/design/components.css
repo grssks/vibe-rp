@@ -3,9 +3,10 @@
    ---------------------------------------------------------------------------
    Implements the class contract in DESIGN.md. Every colour, size, radius,
    shadow and duration comes from a token in tokens.css. No component colour
-   is a literal, with one deliberate exception: the `.rp-dialog::backdrop`
-   fallback, which exists for engines that cannot resolve a token through
-   `color-mix()` and so must be handed a pre-computed composite.
+   is a literal, with one deliberate exception: the pre-computed composite
+   used before `color-mix()` in `.rp-dialog::backdrop` and the detail
+   portrait's scrim (library.css). Engines that cannot resolve a token through
+   `color-mix()` must be handed that composite directly.
 
    Namespace: every class is prefixed `rp-`. The legacy editorial.css was
    deleted; nothing outside this system defines page styling.
@@ -196,10 +197,6 @@
   border: 3px solid transparent;
   border-radius: var(--radius-full);
   background-clip: content-box;
-}
-
-.rp-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: var(--border-control);
 }
 
 /* ============================================================== BUTTONS == */
@@ -879,8 +876,9 @@
   background-color: transparent;
 }
 
-/* The backdrop states a real colour before the color-mix() value. An engine
-   that cannot parse color-mix() (Firefox < 113, Safari < 16.2) drops the
+/* The backdrop and the detail portrait's scrim state a real colour before the
+   color-mix() value. An engine that cannot parse color-mix() (Firefox < 113,
+   Safari < 16.2) drops the
    whole declaration and falls back to the user agent's rgba(0, 0, 0, 0.1) —
    a veil roughly ten times too light. The literal is the 78% composite of
    --canvas-sunken in the default Marginalia theme: #0A0C0E -> rgb(10 12 14),
@@ -1694,7 +1692,6 @@ dialog.rp-dialog:not([open]) {
   opacity: 0.7;
 }
 
-.rp-message__more-btn:hover,
 .rp-message__more-btn[aria-expanded="true"] {
   color: var(--ink-primary);
   opacity: 1;
@@ -2215,7 +2212,6 @@ dialog.rp-dialog:not([open]) {
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.rp-tooltip:hover .rp-tooltip__panel,
 .rp-tooltip:focus-within .rp-tooltip__panel {
   opacity: 1;
   visibility: visible;
@@ -2281,6 +2277,21 @@ dialog.rp-dialog:not([open]) {
 
   .rp-message--user:hover .rp-message__speaker {
     color: var(--accent-user-strong);
+  }
+
+  .rp-message__more-btn:hover {
+    color: var(--ink-primary);
+    opacity: 1;
+    background-color: var(--surface-hover);
+  }
+
+  .rp-tooltip:hover .rp-tooltip__panel {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .rp-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--border-control);
   }
 }
 

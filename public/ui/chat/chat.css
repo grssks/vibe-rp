@@ -111,15 +111,6 @@
   justify-content: center;
 }
 
-@media (max-width: 720px) {
-  .rp-chat__feed .rp-well {
-    padding-block: var(--space-4);
-  }
-
-  /* The composer's own mobile rules live further down, beside the rest of the
-     dock. Duplicates here were dead: the later block wins on source order, so
-     these two only ever misled a reader of this file. */
-}
 /* --------------------------------------------------------------- header --- */
 
 /* Single-row bar. .rp-container is a block box with no display of its own,
@@ -152,10 +143,6 @@
   background: transparent;
   border: none;
   transition: background-color var(--dur-fast) var(--ease-out);
-}
-
-.rp-chat__bar-character:hover {
-  background-color: var(--surface-hover);
 }
 
 .rp-chat__bar-character:focus-visible {
@@ -221,11 +208,6 @@
   transform: translateY(0);
 }
 
-.rp-scroll-bottom:hover {
-  opacity: 1;
-  background-color: var(--surface-hover);
-}
-
 .rp-scroll-bottom:focus-visible {
   outline: var(--focus-width) solid var(--focus-ring);
   outline-offset: var(--focus-offset);
@@ -261,6 +243,15 @@
     min-width: var(--space-6);
     min-height: var(--space-6);
   }
+
+  .rp-chat__bar-character:hover {
+    background-color: var(--surface-hover);
+  }
+
+  .rp-scroll-bottom:hover {
+    opacity: 1;
+    background-color: var(--surface-hover);
+  }
 }
 
 /* --------------------------------------------------- message additions --- */
@@ -273,9 +264,8 @@
 
 /* The header figures read inline and must never push other UI, wrap, or clip
    as their digits change. The head stays one row and the name is the item that
-   yields (it truncates), so the figures keep their floor width and a changing
-   number can only ever pad inside its own box. Nothing here is a fixed width,
-   so a very wide figure grows its box instead of clipping. */
+   yields (it truncates). The figures have a reserved floor, not a cap: a
+   changing number pads inside its own box and a very wide figure grows it. */
 .rp-message__head {
   flex-wrap: nowrap;
 }
@@ -508,11 +498,6 @@ mark.rp-search-hit.is-current {
   transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 
-.rp-choices__collapse-btn:hover {
-  color: var(--ink);
-  background-color: var(--surface-hover);
-}
-
 .rp-choices[data-collapsed="true"] {
   width: 100%;
   max-width: var(--measure-wide);
@@ -522,11 +507,6 @@ mark.rp-search-hit.is-current {
   cursor: pointer;
   background-color: var(--surface-raised);
   border-color: var(--border-hairline);
-}
-
-.rp-choices[data-collapsed="true"]:hover {
-  background-color: var(--surface-hover);
-  border-color: var(--border-strong);
 }
 
 .rp-choices[data-collapsed="true"] .rp-choices__header {
@@ -559,93 +539,20 @@ mark.rp-search-hit.is-current {
   padding: var(--space-1);
 }
 
-/* A real button, styled as an elegant manuscript option line. Full width, left aligned,
-   with generous internal breathing room matching the card system. */
-.rp-choices__option {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  width: 100%;
-  min-height: var(--tap-min);
-  box-sizing: border-box;
-  padding: var(--space-3) var(--space-3-5);
-  text-align: left;
-  font-family: var(--font-prose);
-  font-size: var(--text-base);
-  line-height: var(--leading-prose);
-  color: var(--ink);
-  background-color: var(--surface-raised);
-  border: var(--border-width) solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transform: none;
-  transition: border-color var(--dur-fast) var(--ease-out),
-              background-color var(--dur-fast) var(--ease-out),
-              box-shadow var(--dur-fast) var(--ease-out);
-}
-
-.rp-choices__option:active {
-  transform: none;
-}
-
-.rp-choices__key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  box-sizing: border-box;
-  border-radius: var(--radius-xs);
-  background-color: var(--annotation-subtle);
-  border: var(--border-width) solid var(--accent-annotation);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--accent-annotation);
-  font-weight: 600;
-  flex: none;
-  margin-top: 1px;
-  line-height: 1;
-  padding-top: 2px;
-  transition: background-color var(--dur-fast) var(--ease-out),
-              color var(--dur-fast) var(--ease-out);
-}
-
-.rp-choices__text {
-  flex: 1;
-  min-width: 0;
-  line-height: var(--leading-prose);
-  /* Natural wrapping, never an ellipsis: the whole action must be readable. */
-  overflow-wrap: break-word;
-}
-
-.rp-choices__option:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
+/* The option line is .rp-choice-card from components.css. Only the panel,
+   its prose preview and its layout live here; restating the button's base,
+   hover, selected and focus rules here made the two sheets drift apart. */
 
 @media (hover: hover) and (pointer: fine) {
-  .rp-choices__option:not(:disabled):hover {
-    border-color: var(--accent-annotation);
+  .rp-choices__collapse-btn:hover {
+    color: var(--ink);
     background-color: var(--surface-hover);
-    box-shadow: var(--shadow-sm);
   }
 
-  .rp-choices__option:not(:disabled):hover .rp-choices__key {
-    background-color: var(--accent-annotation);
-    color: var(--ink-inverse);
+  .rp-choices[data-collapsed="true"]:hover {
+    background-color: var(--surface-hover);
+    border-color: var(--border-strong);
   }
-}
-
-/* The chosen line is acknowledged before the turn starts, so the click is
-   visibly registered rather than leaving the reader guessing. */
-.rp-choices__option.is-selected {
-  border-color: var(--accent-annotation);
-  background-color: var(--annotation-subtle);
-}
-
-.rp-choices__option.is-selected .rp-choices__key {
-  background-color: var(--accent-annotation);
-  color: var(--ink-inverse);
 }
 
 .rp-choices__notice {
@@ -670,10 +577,6 @@ mark.rp-search-hit.is-current {
   border-top-color: transparent;
   border-radius: 50%;
   animation: rp-spin 0.8s linear infinite;
-}
-
-@keyframes rp-spin {
-  to { transform: rotate(360deg); }
 }
 
 .rp-choice-skeleton {
@@ -825,13 +728,6 @@ mark.rp-search-hit.is-current {
     min-height: 2.75rem;
   }
 
-  .rp-choices__key {
-    width: 1.375rem;
-    height: 1.375rem;
-    margin-top: 0;
-    padding-top: 1.5px;
-  }
-
   .rp-choices__actions {
     justify-content: flex-end;
     padding-top: var(--space-1);
@@ -916,14 +812,6 @@ mark.rp-search-hit.is-current {
    only way back was a control labelled "Collapse", a word about layout. The
    menu's list is capped at `min(44dvh, 320px)` and the panel collapses in one
    press, so the dock still leaves the reading area most of the viewport. */
-
-/* Focus is stated on the option itself, since it is a real control.
-   Inset outline ensures crisp borders without being clipped by the scroll container. */
-.rp-choices__option:focus-visible {
-  outline: var(--focus-width) solid var(--focus-ring);
-  outline-offset: -1px;
-  border-color: var(--focus-ring);
-}
 
 .rp-choices__collapse-btn:focus:not(:focus-visible) {
   outline: none;
@@ -1045,24 +933,10 @@ dialog.rp-dialog[open] ~ dialog.rp-dialog[open] {
   align-self: center;
   opacity: 0.75;
 }
-/* Toast placement is shared (design/components.css): the region hangs from the
-   top of the viewport on every surface, so it never fights the on-screen
-   keyboard. Chat only widens the toast below; the shared rule owns the rest. */
-
+/* Toast placement and child geometry are shared (design/components.css);
+   chat only widens the toast below. */
 .rp-toast {
   max-width: min(560px, calc(100vw - var(--space-6)));
-  pointer-events: auto;
-}
-/* The shared toast markup (ui/toast.js). library.css carries the same flex
-   rules; chat loads this file instead, so mirror them here. */
-.rp-toast__message {
-  flex: 1;
-  min-width: 0;
-}
-
-.rp-toast__close,
-.rp-toast__action {
-  flex: none;
 }
 /* Sheet that is raised from the composer: keep it above the dock. */
 .rp-sheet[hidden] {

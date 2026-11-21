@@ -15,7 +15,7 @@ import { createChoicePanel } from "./choice_panel.js";
 import { createTurnMachine } from "./turn_machine.js";
 import { createSearch } from "./search.js";
 import { renderContextPanel, applyContextPanelStyles, bindContextPanelActions } from "./context_panel.js";
-import { downloadSessionMarkdownFile, downloadSessionJsonFile } from "../data_transfer.js";
+import { downloadTranscriptFile, downloadSessionJsonFile } from "../data_transfer.js";
 import { openInlineEdit, closeActiveInlineEdit } from "./inline_editor.js";
 import { createHistoryModal } from "./history_modal.js";
 import { compressImage } from "../image.js";
@@ -45,6 +45,14 @@ function resolvePlaceholders(text) {
     char: controller.charName || "Character",
     persona: controller.currentPersona,
   });
+}
+
+/* Export helpers take plain names, not the card/persona records themselves. */
+function exportNames() {
+  return {
+    charName: controller.charName || "Character",
+    userName: controller.currentPersona?.name?.trim() || "You",
+  };
 }
 
 const feed = createMessageFeed({
@@ -551,8 +559,8 @@ function updateContextStats() {
     },
     onExport: (format) => {
       if (!sess) return;
-      if (format === "json") downloadSessionJsonFile(sess, controller.activeCard);
-      else downloadSessionMarkdownFile(sess, controller.activeCard, controller.currentPersona);
+      if (format === "json") downloadSessionJsonFile(sess, { cardName: controller.charName || "" });
+      else downloadTranscriptFile(sess, exportNames());
     },
   });
 }
@@ -685,8 +693,8 @@ const historyModal = createHistoryModal({
   onSessionsEmpty: () => { window.location.href = "./"; },
   onExportSession: (sess, format) => {
     if (!sess) return;
-    if (format === "json") downloadSessionJsonFile(sess, controller.activeCard);
-    else downloadSessionMarkdownFile(sess, controller.activeCard, controller.currentPersona);
+    if (format === "json") downloadSessionJsonFile(sess, { cardName: controller.charName || "" });
+    else downloadTranscriptFile(sess, exportNames());
   },
   onSessionCreated: async () => {
     closeActiveInlineEdit(chatInner);

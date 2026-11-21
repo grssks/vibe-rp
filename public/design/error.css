@@ -1,4 +1,5 @@
-/* 404 / error page styles using only design tokens (CSP style-src 'self'). */
+/* 404 / error page styles using only design tokens (CSP style-src 'self').
+   Standalone sheet: this page loads tokens.css, not components.css. */
 body {
   margin: 0;
   min-height: 100vh;
@@ -9,22 +10,21 @@ body {
   padding: var(--space-6) var(--space-5);
   text-align: center;
 }
-main {
+.rp-error-page {
   max-width: 32rem;
   width: 100%;
 }
-.mark {
+.rp-error-page__mark {
   width: 64px;
   height: 64px;
   margin: 0 auto var(--space-6);
   display: block;
   border-radius: var(--radius-lg);
 }
-.code {
+.rp-error-page__code {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
   color: var(--accent-annotation);
   margin: 0 0 var(--space-3);
 }
@@ -41,7 +41,7 @@ p {
   margin: 0 0 var(--space-6);
   text-wrap: pretty;
 }
-a.return {
+.rp-error-page__return {
   display: inline-flex;
   align-items: center;
   min-height: var(--tap-min);
@@ -54,7 +54,7 @@ a.return {
   font-weight: 500;
 }
 @media (hover: hover) and (pointer: fine) {
-  a.return:hover {
+  .rp-error-page__return:hover {
     border-color: var(--border-strong);
     background-color: var(--surface-hover);
   }

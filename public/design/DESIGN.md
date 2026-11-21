@@ -55,7 +55,14 @@ One token set drives both themes. `:root` is Marginalia (dark, default).
 `[data-theme="paper"]` overrides colour, elevation and grain only; type,
 space, radius, motion and z-index are identical in both. `theme-boot.js` applies
 the stored theme before first paint, so there is no flash of the wrong ground;
-`ui/theme.js` owns the same contract at runtime.
+`ui/theme.js` owns the same contract at runtime. With no stored choice, both
+resolve the operating system's `prefers-color-scheme`: a light preference
+selects Paper, anything else keeps the dark default. The top-bar icon toggle on
+each page is the only switch; it writes `vibe_rp_theme` and applies the
+`data-theme` attribute, nothing else. Two composites are the only literal
+colours outside this file: the dialog backdrop and the detail portrait scrim
+each state the Marginalia value before `color-mix()` so older engines keep a
+real dim.
 
 ### 3.1 Ground and elevation
 
@@ -417,8 +424,10 @@ aligns to it rather than to the viewport.
 
 - Turns are separated by a hairline, not by a card. Bubbles make a
   manuscript read like a chat log, which is the wrong instrument.
-- The reading well is a full-width reading pane: sunken ground, grain, and a
-  reading gutter. Annotations render inline above the prose.
+- The reading well fills the feed's height and is capped at `--measure-wide`,
+  centred so its edges share one column with the composer dock. Its sunken
+  ground, grain and reading gutter stay; prose inside remains capped at
+  `--measure`. Annotations render inline above the prose.
 - The message portrait is the header portrait: a large squircle beside the
   speaker's name, with the timestamp and token figure on the same line.
 - Message action trays are hidden until the turn is hovered or focus-within,
@@ -476,7 +485,11 @@ aligns to it rather than to the viewport.
 Every class is prefixed `rp-`. `design/tokens.css` loads first, then
 `design/components.css`, then the page composition layer (`ui/library.css`,
 `ui/chat/chat.css`). Nothing here redefines an existing class, so the
-stylesheets coexist.
+stylesheets coexist. Page layers may add page-specific `rp-` classes for
+surfaces this contract does not enumerate (choice panels, ledger controls,
+storage stats); they compose tokens and never restate a shared component's
+base, hover, selected or focus rules. The 404 page loads only `tokens.css` and
+the standalone `design/error.css`, using the same token and prefix rules.
 
 ### 7.1 Shell and utilities
 
@@ -586,7 +599,7 @@ with `.rp-error-state__title` and `.rp-error-state__body`.
 | `.rp-message__meta` | Timestamp and token figure, mono, tabular. |
 | `.rp-message__prose` | The reading surface. Serif, 68ch, 1.72 leading. |
 | `.rp-message__tray` | Hidden until hover, focus-within, or `data-open="true"`. |
-| `.rp-thought`, `.rp-thought__summary` | Annotated thought block, gold. |
+| `.rp-message__thought`, `.rp-message__thought-summary`, `.rp-message__thought-body` | Annotated thought block: gold rule and summary, serif body. |
 | `.rp-flag` | Continuity flag chip. |
 | `.rp-composer`, `.rp-composer__box`, `__input`, `__actions`, `__actions--end` | The composer dock. |
 
@@ -658,9 +671,9 @@ reinforcement.
 
 ## 10. The one bold element
 
-**Marginalia:** the reading well itself. The pane opens the full column, a
-sunken ground carrying a static grain, with one reading gutter shared by the
-message portraits, the prose and the composer. Continuity flags, thought
+**Marginalia:** the reading well itself. The pane opens the full height of its
+capped column, a sunken ground carrying a static grain, with one reading gutter
+shared by the message portraits, the prose and the composer. Continuity flags, thought
 marks and the author's hand render inline above the prose.
 
 **Paper:** the same pane, spent the other way. In daylight the sunken ground
@@ -715,8 +728,9 @@ of pretending to have depth.
 
 ## 12. What was deliberately left out
 
-- **No new npm dependency and no preprocessor.** Plain CSS in two files.
-  The only build step is none.
+- **No new npm dependency and no preprocessor.** Plain CSS in three files:
+  `tokens.css`, `components.css`, and a small standalone `error.css` for the
+  404 page. The only build step is none.
 - **No new font beyond one.** Newsreader and JetBrains Mono already ship in
   `public/fonts/` and are reused by relative path. Source Sans 3 was added
   at `public/design/fonts/` because the previous system stack was the main
@@ -733,10 +747,10 @@ of pretending to have depth.
 - **No icon set.** Icons are out of scope for a CSS system, and adding a
   library would break the zero-dependency rule. The one glyph that appears
   in CSS is the `.rp-error` marker, drawn in CSS.
-- **No dark and light toggle control.** The skill's guidance is explicit
-  that a sun and moon switch is a default; the theme is set by a
-  `data-theme` attribute, and the control belongs in the settings surface
-  the page workers own.
+- **One theme toggle, in the top bar.** It is an icon button on both pages,
+  not a settings control and not a decorative sun-and-moon pair. It writes
+  `vibe_rp_theme` and applies the `data-theme` attribute through
+  `ui/theme.js`; settings does not carry a second copy.
 - **No spinner component for page loads.** Skeleton shapes that match the
   eventual layout are specified instead, because a skeleton that matches
   the layout is strictly more useful than a centred circle.

@@ -302,7 +302,7 @@ export function createChoicePanel({
     }
     if (badgeText) {
       const kindBadge = el("span", {
-        class: "rp-badge rp-badge--ghost rp-choice-card__kind",
+        class: "rp-badge rp-choice-card__kind",
         attrs: { "aria-hidden": "true" },
         text: badgeText,
       });
